@@ -1,0 +1,13 @@
+[project]
+name = "simarche"
+version = "1.0.0"
+description = "Simulation multi-agents : deux commerces pilotés par IA se disputent une ville de clients IA"
+requires-python = ">=3.11"
+dependencies = ["pyyaml", "pandas", "plotly", "streamlit"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

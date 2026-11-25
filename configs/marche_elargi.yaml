@@ -1,0 +1,23 @@
+# Banc d'essai hors ligne, à comparer aux scénarios à 30 foyers.
+nom: marche_elargi
+graine: 42
+semaines: 26
+foyers: 150
+clients:
+  cerveau: formule
+magasins:
+  - {id: A, nom: Le Panier Malin, gerant: "regles:temoin"}
+  - {id: B, nom: Chez Marcel, gerant: "regles:temoin"}
+economie:
+  tresorerie_initiale: 12000
+  charges_fixes_jour: 75
+  mise_en_rayon_base_jour: 420
+  mise_en_rayon_creneau: 110
+  duree_amortissement_jours: 180
+enregistrer_scene: false
+sauvegarde_quotidienne: false
+marche_local:
+  trajets_enchaines: true
+evenements:
+  - {semaine: 6, type: penurie, produits: [oeufs_mdd, oeufs_plein_air], jours: 10}
+  - {semaine: 20, type: inflation, categories: [proteines, laitiers, lait], hausse: 0.15}

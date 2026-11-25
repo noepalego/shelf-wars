@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f7f7f1">
+  <title>Simarché — L’observatoire du commerce</title>
+  <meta name="description" content="Explorez les résultats du tournoi de deux supérettes sur douze semaines simulées.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%236340cc'/%3E%3Cpath d='M10 32l8-18m1 18l8-18m1 18l8-18' stroke='white' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script src="resultats.js" defer></script><script src="app.js" defer></script>
+</head>
+<body>
+  <header><div class="top wrap">
+    <a class="brand" href="#observatoire" aria-label="Simarché, accueil"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Simarché<span class="brand-dot">.</span></a>
+    <nav aria-label="Navigation principale"><a href="#observatoire">Observatoire</a><a href="#duels">Duels</a><a href="#methode">Méthode</a><a href="magasins.html">Magasins 3D</a></nav>
+    <button id="export" class="export"><span aria-hidden="true">↓</span> Exporter en CSV</button>
+  </div></header>
+  <main class="wrap">
+    <section class="hero">
+      <div class="intro"><p class="eyebrow"><span class="rule"></span> Laboratoire de simulation</p>
+        <h1>L’observatoire<br><em>du commerce.</em></h1>
+        <p class="lead">Deux supérettes, les mêmes foyers. Explorez comment les prix, les coupons et les rayons transforment leurs résultats au fil des semaines.</p>
+      </div>
+      <figure class="cover"><img src="marche.webp" alt="Panier métallique de provisions et fruits sur un fond lavande" width="1774" height="887"></figure>
+    </section>
+    <div id="error" role="alert" hidden>Les résultats sont indisponibles. Générez le tournoi ou vérifiez le fichier resultats.js.</div>
+    <div id="app" hidden>
+    <section class="controls" aria-label="Paramètres">
+      <div><span class="control-label">Conjoncture</span><div id="scenarios" class="pills"></div></div>
+      <div class="slider-wrap"><label class="control-label" for="week">Horizon</label><div class="slider"><input type="range" min="1" value="1" id="week"><output for="week" id="week-output"></output></div></div>
+    </section>
+    <section id="observatoire" class="view">
+      <div class="metrics" id="metrics"></div>
+      <div class="panels">
+        <article class="panel timeline"><div class="panel-head"><div><p class="kicker">Trajectoires</p><h2>Au fil des semaines</h2></div><label class="select-wrap"><span class="sr">Indicateur du graphique</span><select id="metric"></select></label></div>
+          <p class="caption" id="chart-note"></p>
+          <div id="plot" class="plot"></div>
+          <div id="legend" class="legend" aria-label="Stratégies du graphique"></div>
+          <details class="numbers"><summary>Données du graphique</summary><div class="scroll" id="chart-table"></div></details>
+        </article>
+        <article class="panel ranking"><div class="panel-head"><div><p class="kicker">Comparatif</p><h2>Le classement</h2></div><span class="small-tag" id="rank-week"></span></div>
+          <p class="caption">Écart de profit cumulé par rapport au même magasin témoin.</p><div id="rank"></div>
+          <p id="rank-foot" class="footnote"></p>
+        </article>
+      </div>
+      <section class="panel accounting"><div><p class="kicker">Décomposition du résultat</p><h2 id="factor-heading"></h2><p id="factor-period" class="caption"></p></div><div id="factors"></div></section>
+      <section class="insight"><div><p class="kicker">Fidélisation</p><h2>Les coupons font-ils revenir les clients&nbsp;?</h2><p class="caption">Membres absents depuis au moins sept jours, répartis au hasard entre une relance et un groupe témoin. Une personne peut participer plusieurs semaines.</p></div><div id="cohorts" class="cohorts"></div></section>
+    </section>
+    <section id="duels" class="view" hidden>
+      <article class="panel duel-panel"><div class="panel-head"><div><p class="kicker">Deux gérants adaptatifs</p><h2>Le duel, semaine par semaine</h2></div><label class="select-wrap"><span class="sr">Population du duel</span><select id="seed"></select></label></div>
+        <p class="caption">Chaque gérant essaie les cinq tactiques puis arbitre selon ses profits passés et le nombre d’essais. Sélectionnez une semaine pour comparer leurs choix.</p>
+        <div class="duel-scores" id="duel-scores"></div><div class="scroll" id="duel-grid"></div>
+        <p class="duel-finding" id="duel-finding"></p>
+        <div class="duel-graph"><h3>Profit cumulé des deux magasins</h3><div class="plot" id="duel-plot"></div></div>
+      </article>
+    </section>
+    <section id="methode" class="view" hidden>
+      <article class="panel method"><p class="kicker">Protocole expérimental</p><h2>Comment lire l’expérience</h2><div id="protocol"></div>
+        <details class="improvements" open><summary>Les dix changements du simulateur</summary><ol>
+          <li><b>Attention en rayon.</b> La hauteur, la visibilité et le temps disponible modifient les variantes remarquées.</li>
+          <li><b>Produits complémentaires.</b> Un produit aperçu peut rappeler un complément placé à proximité.</li>
+          <li><b>Valeur perçue des coupons.</b> Les clients tiennent compte de leur budget, des produits visés et des conditions du bon.</li>
+          <li><b>Tarification quotidienne.</b> Le gérant ajuste les prix selon la couverture de stock et les ventes récentes, en payant les changements d’étiquette.</li>
+          <li><b>Réassort anti-gaspillage.</b> Les volumes commandés et les remises sur dates courtes réagissent aux pertes observées.</li>
+          <li><b>Relance personnalisée.</b> Le seuil et le montant du bon dépendent du panier moyen de chaque membre inactif.</li>
+          <li><b>Groupe témoin de relance.</b> Le tirage au sort permet de comparer les retours en magasin sur sept jours.</li>
+          <li><b>Merchandising selon la marge.</b> Les produits qui contribuent le plus à la marge estimée obtiennent des places plus visibles.</li>
+          <li><b>Gérant adaptatif.</b> Il essaie les tactiques puis révise son choix après chaque semaine de ventes.</li>
+          <li><b>Tournoi apparié et duels.</b> Chaque politique est testée aux deux emplacements, sur les mêmes populations et sous deux conjonctures.</li>
+        </ol></details>
+      </article>
+    </section></div>
+    <noscript>Activez JavaScript pour explorer les graphiques.</noscript>
+  </main>
+  <footer class="wrap"><span>Simarché<span class="brand-dot">.</span></span><small>Laboratoire de stratégies commerciales</small></footer>
+</body></html>

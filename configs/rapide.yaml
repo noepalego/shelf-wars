@@ -1,0 +1,11 @@
+# Mode rapide et gratuit : aucun appel à Codex (clients à formule, gérants à règles).
+# Pratique pour tester le moteur, calibrer, ou comparer avec une partie pilotée par l'IA.
+nom: rapide
+graine: 42
+semaines: 52
+foyers: 30
+magasins:
+  - {id: A, nom: Le Panier Malin, gerant: "regles:equilibre"}
+  - {id: B, nom: Chez Marcel, gerant: "regles:moins_cher"}
+clients:
+  cerveau: formule

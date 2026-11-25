@@ -1,0 +1,49 @@
+# Laboratoire de compétition économique autonome.
+# Deux supérettes se disputent 30 habitants fictifs pilotés par Claude Haiku (profil, budget, mémoire). Chaque magasin
+# est dirigé par deux agents permanents (Claude Sonnet) : le gérant et le responsable marketing, données et
+# connaissance client. Ils ont un objectif (le bénéfice net cumulé), les règles de l'univers et des capacités :
+# analyser, programmer, inventer des dispositifs (l'arbitre du moteur les chiffre ; acceptés, ils sont installés
+# immédiatement), engager des sous-agents payants. Aucune stratégie n'est suggérée.
+# Lancement : python -m simarche run --config configs/laboratoire.yaml
+nom: laboratoire
+graine: 2026
+semaines: 26
+foyers: 30                 # population volontairement petite : chaque habitant est piloté par un modèle
+ia: claude
+ia_secours: null
+vie_privee: libre          # univers fictif : aucune règle de confidentialité ni de consentement sur les données des habitants
+lois: france               # règles du commerce (revente à perte, plafond de promotion)
+magasins:
+  - {id: A, nom: Le Panier Malin, gerant: ia}
+  - {id: B, nom: Chez Marcel, gerant: ia}
+clients:
+  cerveau: ia              # chaque habitant décide avec le modèle « client » (Claude Haiku)
+  taille_lot: 15
+gerants:
+  cadence_semaines: 1
+  equipe: [gerant, marketing]
+  domaines_stricts: false  # chacun peut utiliser tous les leviers : l'organisation vient des agents
+  projets: true
+sous_agents:
+  actif: true
+  tarifs: {analyse_simple: 20, developpement_script: 100, algorithme_avance: 300, systeme_complexe: 800}
+modeles:
+  claude:
+    gerant: {modele: claude-sonnet-5-5, effort: high}
+    marketing: {modele: claude-sonnet-5-5, effort: high}
+    arbitre: {modele: claude-sonnet-5-5, effort: medium}
+    sous_agent: {modele: claude-sonnet-5-5, effort: medium}
+    client: {modele: claude-haiku-5-5, effort: low}
+    moderation: {modele: claude-haiku-5-5, effort: low}
+appels:
+  parallele: 3
+  en_cas_de_limite: attendre
+  attente_max_h: 120
+journalisation:
+  evenements_complets: false   # true : toute la vérité de l'univers dans le journal (audits ; plus volumineux)
+rapport_final: true
+enregistrer_scene: true
+sauvegarde_quotidienne: true
+empecher_veille: true
+marche_local:
+  trajets_enchaines: true

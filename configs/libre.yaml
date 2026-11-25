@@ -1,0 +1,31 @@
+# Longue partie libre (un an) pensée pour un abonnement Claude Pro.
+# Chaque magasin est dirigé par deux agents Claude Sonnet (effort élevé), dont le seul but est de gagner le plus d'argent
+# possible : le gérant (personnel, caisses, rayons, prix, stocks) puis la responsable marketing et clients (promotions,
+# coupons, questionnaires, fidélité). Toutes les deux semaines, ils analysent leurs données dans le dossier du magasin,
+# écrivent leurs propres programmes (qui tournent chaque jour), imaginent et commandent des équipements ou des services
+# (évalués par un expert indépendant : prix, délai, légalité), et décident librement. Les habitants choisissent chaque
+# jour à la formule ; Claude Haiku leur fait lire les messages, répondre (ou non) aux questionnaires et faire le bilan.
+# Codex prend le relais à la limite de Claude. Si les deux moteurs sont limités, la partie attend leur disponibilité.
+# Lancement : python -m simarche run --config configs/libre.yaml
+nom: libre
+graine: 71
+semaines: 52
+foyers: 30
+ia: claude
+ia_secours: codex         # relais quand la limite d'usage de Claude est atteinte
+magasins:
+  - {id: A, nom: Le Panier Malin, gerant: ia}
+  - {id: B, nom: Chez Marcel, gerant: ia}
+clients:
+  cerveau: mixte
+  taille_lot: 15
+gerants:
+  cadence_semaines: 2
+  equipe: [gerant, marketing]
+  projets: true
+appels:
+  en_cas_de_limite: attendre
+  attente_max_h: 120      # cumul maximal de pauses avant un arrêt propre (reprise : python -m simarche reprendre)
+enregistrer_scene: true
+sauvegarde_quotidienne: true    # reprise au jour près (évite de rejouer une session)
+empecher_veille: true           # le PC ne se met pas en veille tout seul pendant la partie

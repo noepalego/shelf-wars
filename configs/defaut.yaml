@@ -1,0 +1,75 @@
+# Partie complète : directions de magasin et habitants pilotés par l'IA, sans clé API.
+#   ia: claude → Claude Code avec ton abonnement Claude (Pro ou Max) : Sonnet (effort élevé) pour les deux agents de
+#                direction de chaque magasin, Haiku pour les habitants, Sonnet pour l'expert qui évalue les projets.
+#   ia: codex  → Codex avec ton abonnement ChatGPT.
+# Connexion de Claude Code (une fois) : python -m simarche claude-login
+nom: partie
+graine: 42
+semaines: 52
+foyers: 30
+creneaux: true          # matin, midi, soir
+lois: france            # france | far_west
+option_exterieure: true # hypermarché lointain et marché du samedi
+discussion_gerants: false
+
+ia: claude              # claude | codex
+ia_secours: codex       # relais quand la limite d'usage de Claude est atteinte
+
+magasins:
+  - id: A
+    nom: Le Panier Malin
+    gerant: ia          # ia | auteur | regles:equilibre | regles:moins_cher | regles:marge | regles:hasard | regles:fixe
+  - id: B
+    nom: Chez Marcel
+    gerant: ia
+
+clients:
+  cerveau: ia           # ia | mixte | formule
+  taille_lot: 15        # habitants par appel (plus grand = moins d'appels)
+
+gerants:
+  cadence_semaines: 1   # une session de réflexion par semaine ; leurs programmes tournent chaque jour
+  # Direction de chaque magasin « ia » : le gérant (personnel, caisses, rayons, prix, stocks) puis la responsable
+  # marketing et clients (promotions, coupons, questionnaires, fidélité, communication). [gerant] : un seul agent.
+  equipe: [gerant, marketing]
+  projets: true         # équipements et services imaginés par les agents, évalués par un expert indépendant
+
+modeles:
+  claude:
+    gerant: {modele: claude-sonnet-5-5, effort: high}
+    marketing: {modele: claude-sonnet-5-5, effort: high}
+    arbitre: {modele: claude-sonnet-5-5, effort: medium}
+    client: {modele: claude-haiku-5-5, effort: low}
+    moderation: {modele: claude-haiku-5-5, effort: low}
+    analyse: {modele: claude-sonnet-5-5, effort: medium}
+  codex:
+    gerant: {modele: gpt-6.2-sol, effort: high}
+    marketing: {modele: gpt-6.2-sol, effort: high}
+    arbitre: {modele: gpt-6.2-sol, effort: medium}
+    client: {modele: gpt-6-luna, effort: low}
+    moderation: {modele: gpt-6-luna, effort: low}
+    analyse: {modele: gpt-6.2-sol, effort: medium}
+
+appels:
+  parallele: 3                 # appels simultanés
+  en_cas_de_limite: attendre   # attendre (pause puis reprise automatique) | arreter (sauvegarde ; reprendre plus tard)
+  attente_max_h: 8
+  moderation_llm: true
+  max_commandes_gerant: 12     # commandes Python par session de gérant
+  max_tours_gerant: 40         # tours d'outils par session (Claude)
+
+claude:
+  chemin: null            # détection automatique (PATH, ~/.local/bin, application Claude)
+  utiliser_cle_api: false # false : une éventuelle ANTHROPIC_API_KEY est ignorée, l'abonnement est utilisé
+
+codex:
+  chemin: null            # détection automatique du codex.exe de l'application Codex
+
+enregistrer_scene: true   # instants pour la visite 3D (sites/observatoire/dist/magasins.html)
+empecher_veille: true     # Windows : le PC ne se met pas en veille tout seul pendant la partie
+
+evenements:
+  - {semaine: 20, type: inflation, categories: [proteines, laitiers, lait], hausse: 0.15}
+  - {semaine: 34, type: penurie, produits: [oeufs_mdd, oeufs_plein_air], jours: 10}
+marche_local:
+  trajets_enchaines: true

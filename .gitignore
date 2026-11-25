@@ -1,0 +1,12 @@
+.venv/
+.runtime/
+runs/
+output/
+tmp/
+configs.zip
+*.zip
+__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+.openai/

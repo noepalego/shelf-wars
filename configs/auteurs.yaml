@@ -1,0 +1,21 @@
+# Gérants « auteurs » : toutes les quatre semaines, Claude Sonnet écrit le programme Python complet qui dirige le magasin
+# (aucune décision directe : tout passe par son code, avec tous les leviers). C'est la variante la plus économe :
+# 13 programmes par magasin sur un an. Lancement : python -m simarche run --config configs/auteurs.yaml
+nom: auteurs
+graine: 71
+semaines: 52
+foyers: 30
+ia: claude
+magasins:
+  - {id: A, nom: Le Panier Malin, gerant: auteur}
+  - {id: B, nom: Chez Marcel, gerant: auteur}
+clients:
+  cerveau: mixte
+auteurs:
+  transport: ia           # ia | fichiers (tu déposes toi-même programme.py et note.txt chaque période)
+  revision_semaines: 4
+appels:
+  en_cas_de_limite: attendre
+  attente_max_h: 96
+enregistrer_scene: true
+sauvegarde_quotidienne: true    # reprise au jour près (évite de rejouer une session de gérant)

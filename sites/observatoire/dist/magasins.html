@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Les magasins en 3D · Simarché</title>
+  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="magasins.css">
+  <script src="instantanes.js" defer></script><script src="magasins.js" defer></script>
+</head>
+<body>
+<header><div class="top wrap">
+  <a class="brand" href="index.html" aria-label="Accueil Simarché"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Simarché<span class="brand-dot">.</span></a>
+  <nav aria-label="Navigation principale"><a href="index.html">Observatoire</a><a href="magasins.html" aria-current="page">Magasins 3D</a></nav>
+</div></header>
+<main class="wrap studio">
+  <section class="studio-head"><div><p class="eyebrow"><span class="rule"></span> Visite des commerces</p><h1>Les magasins <em>en 3D.</em></h1></div>
+    <label>Partie enregistrée<select id="game"></select></label></section>
+  <p id="load-error" hidden role="alert">Les états 3D sont indisponibles. Actualisez l’export des parties locales.</p>
+  <div id="studio-content" hidden>
+    <section class="workbench"><div class="model">
+      <div class="stage-head"><div class="tabs" id="views" aria-label="Magasins visibles"></div>
+        <span class="date" id="stage-date"></span></div>
+      <div class="stage" id="stage"><canvas id="scene" tabindex="0" aria-label="Maquette tridimensionnelle des magasins. Utilisez les flèches pour pivoter et les touches plus et moins pour zoomer. Les produits peuvent aussi être choisis dans la fiche."></canvas>
+        <div class="camera"><button id="left" aria-label="Pivoter à gauche" title="Pivoter à gauche">↶</button><button id="right" aria-label="Pivoter à droite" title="Pivoter à droite">↷</button>
+          <button id="minus" aria-label="Dézoomer" title="Dézoomer">−</button><button id="plus" aria-label="Zoomer" title="Zoomer">+</button>
+          <button id="home" title="Cadrage initial" aria-label="Cadrage initial">⌖</button></div>
+        <div id="tip" class="tip" hidden></div>
+      </div>
+      <div class="stage-foot"><span>Glisser pour pivoter · molette pour zoomer · cliquer sur un produit. Couleur : catégorie ; hauteur : stock ;
+        jaune : promotion ; orange : date courte ; gris : rupture. Les lignes au sol sont les trajets des clients du créneau.</span>
+        <label><input id="route" type="checkbox"> Trajet d’un foyer</label></div>
+    </div>
+    <aside class="inspector"><div class="inspector-head"><p class="kicker">Dans le rayon</p><h2>Fiche produit</h2></div>
+      <div class="form-pair"><label>Magasin<select id="shop"></select></label><label>Rayon<select id="aisle"></select></label></div>
+      <label>Référence<select id="product"></select></label>
+      <div class="item-title"><div id="item-swatch"></div><div><p class="kicker" id="item-range"></p><h3 id="item-name"></h3></div></div>
+      <div id="numbers" class="numbers3d"></div><p class="fine" id="offer"></p>
+      <dl class="detail-list" id="location"></dl>
+      <div class="charthead"><h3>Prix affiché</h3><small id="price-range"></small></div>
+      <canvas id="price-chart" class="spark" aria-label="Évolution du prix de la référence sur les instants disponibles"></canvas>
+    </aside></section>
+    <section class="time-panel"><div class="time-intro"><p class="kicker">Chronologie</p><h2 id="time-name"></h2><p id="time-info" class="fine"></p></div>
+      <div class="time-controls"><div class="transport"><button id="prev" title="Instant précédent" aria-label="Instant précédent">‹</button><button id="play">Lire</button><button id="next" title="Instant suivant" aria-label="Instant suivant">›</button></div>
+        <label class="track"><span class="sr">Instant enregistré</span><input id="time" type="range" min="0" value="0" max="0"></label>
+        <label class="filter"><span class="sr">Filtrer les instants</span><select id="slots" aria-label="Filtrer les instants"></select></label></div></section>
+    <section class="operations"><article class="profits"><p class="kicker">Comptabilité</p><h2>Les deux magasins</h2><div id="scoreboard"></div>
+      <div class="charthead"><h3>Profit cumulé</h3><small>Depuis l’ouverture</small></div><canvas id="profit-chart" class="spark" aria-label="Évolution du profit cumulé des deux commerces"></canvas></article>
+      <article class="programs"><p class="kicker">Décisions des gérants</p><h2>Programmes du magasin</h2><p id="origin"></p>
+        <label id="version-label">Version archivée<select id="versions"></select></label>
+        <p id="note" class="fine"></p><details id="source-panel"><summary>Lire le code Python</summary><pre><code id="source"></code></pre></details>
+      </article></section>
+    <p class="fine credits">Chaque instant est enregistré après un créneau (matin, midi, soir) ou à la clôture. Les étagères indiquent l’emplacement et le nombre de facings ; le stock comprend toutes les unités disponibles en magasin ; les prix affichés en clôture sont les tarifs de base. La courbe de prix compare les deux magasins sur toute la partie. Pour ajouter une partie : <code>python -m simarche scenes</code>.</p>
+  </div><noscript>Activez JavaScript pour explorer les magasins.</noscript>
+</main><footer class="wrap"><span>Simarché.</span><small>Atelier des magasins</small></footer>
+</body></html>
