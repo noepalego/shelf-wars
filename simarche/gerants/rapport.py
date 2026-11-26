@@ -47,6 +47,17 @@ def e(x: float) -> str:
     return f"{x:,.2f} €".replace(",", " ").replace(".", ",")
 
 
+def condensed_notes(notes: list[str], n: int) -> list[str]:
+    """Les `n` dernières notes distinctes, dans l'ordre de leur dernière apparition, avec « (×k) » quand une même note
+    revient k fois : un programme qui écrit la même ligne chaque matin ne chasse plus les autres notes du rapport."""
+    count: dict = {}
+    last: dict = {}
+    for i, x in enumerate(notes):
+        count[x] = count.get(x, 0) + 1
+        last[x] = i
+    return [x + (f" (×{count[x]})" if count[x] > 1 else "") for x in sorted(last, key=last.get)[-n:]]
+
+
 def build_report(world, store, role: str | None = None) -> str:
     day = world.day
     week = day // 7  # semaine qui commence (0 = première)
@@ -76,6 +87,10 @@ def build_report(world, store, role: str | None = None) -> str:
         scores = [week_score(store, w) for w in range(max(0, last - 3), last + 1)]
         L.append("- Résultat par semaine (les plus récentes à droite) : " + " | ".join(
             f"{temps.week_tag(w)} {e(s['resultat'])}" for w, s in zip(range(max(0, last - 3), last + 1), scores)))
+        if last >= 1:  # tout l'historique : de quoi distinguer une tendance d'un effet de calendrier (paies, mois)
+            L.append("- Toutes les semaines depuis l'ouverture (chiffre d'affaires · passages · marge brute) : " + " | ".join(
+                f"{temps.week_tag(w)} {ws['ca']:,.0f} € · {ws['visites']} · {ws['marge']:,.0f} €".replace(",", " ")
+                for w, ws in ((w, week_score(store, w)) for w in range(0, last + 1))))
         s = scores[-1]
         L.append(f"- Productivité de {temps.week_name(last)} : {e(s['marge_par_creneau'])} de marge brute et {e(s['ca_par_creneau'])} "
                  f"de ventes par créneau de travail ({s['creneaux']} créneaux : {s['creneaux_base']} équipe de base, "
@@ -192,7 +207,7 @@ def build_report(world, store, role: str | None = None) -> str:
         L += [f"- {x}" for x in store.rejected[:25]]
     if store.report_notes:
         L.append("\n## Notes de tes programmes et incidents (les plus récentes)")
-        L += [f"- {x}" for x in store.report_notes[-30:]]
+        L += [f"- {x}" for x in condensed_notes(store.report_notes, 30)]
     L.append("\n## Concurrent et informations publiques")
     L.append(f"- Concurrent : {other.id} « {other.nom} »" + (f", slogan « {public_other['slogan']} »" if public_other["slogan"] else ""))
     fl = [f for f in public_other["prospectus"] if f["debut"] >= day - 7]
@@ -216,6 +231,12 @@ def build_report(world, store, role: str | None = None) -> str:
         L.append("- Actualités : " + " ".join(news))
     if store.inbox_from_competitor:
         L.append("- Messages reçus du concurrent : " + " | ".join(store.inbox_from_competitor[-5:]))
+    stats = store.__dict__.get("enquete_stats") or {}
+    if stats:
+        L.append("\n## Vos questionnaires : participation")
+        L += [f"- {k} : {v.get('invitations', 0)} foyers invités, {v.get('reponses', 0)} réponses, {v.get('refus', 0)} refus de "
+              f"répondre, {max(0, v.get('invitations', 0) - v.get('reponses', 0) - v.get('refus', 0))} sans suite pour l'instant"
+              for k, v in list(stats.items())[-6:]]
     if store.survey_answers:
         L.append("\n## Dernières réponses volontaires (historique dans donnees/enquetes.csv)")
         for a in disclosed_answers(store)[-25:]:
@@ -252,7 +273,9 @@ def tools_lines(world, store) -> list[str]:
         out.append(f"- {name} v{v.get('version', 1)} ({'actif' if v['actif'] else 'inactif'}, activé par "
                    f"{v.get('auteur') or 'la direction'}) — {hooks} : {st.get('executions', 0)} exécutions, "
                    f"{st.get('actions', 0)} actions proposées" + (f" ({types})" if types else "")
-                   + (f", {st.get('erreurs', 0)} erreurs" if st.get("erreurs") else ""))
+                   + (f", {st.get('erreurs', 0)} erreurs" if st.get("erreurs") else "")
+                   + (f", {st['refus']} éléments refusés par le moteur (détail dans les notes)" if st.get("refus") else "")
+                   + (f", {st['ignorees']} actions ignorées faute de place (limite technique)" if st.get("ignorees") else ""))
     if store.program_outputs:
         out.append("- Tables publiées par vos programmes : " + ", ".join(
             f"{k} ({len(r)} lignes)" for k, r in list(store.program_outputs.items())[:12]))
@@ -347,19 +370,22 @@ def export_workspace(world, store, ws: Path, role: str | None = None) -> None:
     _csv(data / "ventes_par_jour.csv", ["jour", "date", "jour_semaine", "produit", "quantite", "ca", "cout"], rows)
     rows = []
     for t in store.tickets:
-        if t["jour"] >= day - 28:
+        if t["jour"] >= day - 42:
             rows.append([t["id"], t["jour"], temps.day_name(t["jour"]), t["creneau"], t["membre"] or "", f"{t['total']:.2f}",
                          f"{t['remise_coupons']:.2f}", f"{t['remise_points']:.2f}", ",".join(t["coupons"]),
-                         " ".join(f"{l['produit']}x{l['quantite']}" for l in t["lignes"])])
+                         " ".join(f"{l['produit']}x{l['quantite']}" for l in t["lignes"]), t.get("paiement", ""),
+                         t.get("carte_bancaire", "")])
     _csv(data / "tickets.csv", ["ticket", "jour", "jour_semaine", "creneau", "membre", "total", "remise_coupons", "remise_points",
-                                "coupons", "articles"], rows)
+                                "coupons", "articles", "paiement", "carte_bancaire"], rows)
     rows = []
     for m in store.members.values():
         rows.append([m.id, m.jour_inscription, json.dumps(m.donnees, ensure_ascii=False), int(m.consent_email and not m.desabonne_email),
                      int(m.consent_sms and not m.desabonne_sms), f"{m.points:.0f}", m.visites, f"{m.total_depense:.2f}", m.derniere_visite,
-                     m.notes, ",".join(m.tags), json.dumps(store.individual_prices.get(m.id, {}), ensure_ascii=False)])
+                     m.notes, ",".join(m.tags), json.dumps(store.individual_prices.get(m.id, {}), ensure_ascii=False),
+                     " ".join(f"{d}:{c}:{x:.2f}" for d, c, x in m.__dict__.get("historique", []))])
     _csv(data / "membres.csv", ["membre", "inscrit_jour", "donnees_declarees", "joignable_email", "joignable_sms", "points", "visites",
-                                "total_depense", "derniere_visite", "notes", "tags", "prix_individuels"], rows)
+                                "total_depense", "derniere_visite", "notes", "tags", "prix_individuels",
+                                "passages (jour:creneau:montant)"], rows)
     rows = []
     keys = ("ventes", "cout_des_ventes", "demarque", "demarque_inconnue", "charges_fixes", "salaires", "caisses_supplementaires",
             "recrutement", "indemnites", "marketing", "veille", "etiquettes", "systemes", "investissements", "sous_agents", "remises_coupons",
@@ -400,7 +426,7 @@ def export_workspace(world, store, ws: Path, role: str | None = None) -> None:
                                     "Une place (rayon, segment, niveau) accueille un produit ; déplacer un produit vers une place occupée échange les deux. "
                                     "Mises en avant : entree (2 produits), tete_gondole_1 (2), tete_gondole_2 (2), caisse (3).", encoding="utf-8")
     if store.automations:
-        logs = "\n".join(store.report_notes[-60:])
+        logs = "\n".join(condensed_notes(store.report_notes, 60))
         (data / "automatisations_journal.txt").write_text(logs, encoding="utf-8")
     duo = len(store.team) > 1
     for r in (store.team if duo else [None]):

@@ -62,6 +62,8 @@ actionnaire:
   apports: true
   plafond_apports: 10000
   plafond_par_confiance: 5000
+  comparaison_concurrent: true     # il lit aussi les comptes du concurrent : faire moins de 90 % de son résultat = revue manquée
+  part_du_concurrent: 0.9
 rencontre:
   actif: true
   participants: [gerant]
@@ -74,7 +76,7 @@ economie:                          # magasins dimensionnés pour 90 foyers : cap
   echelle_investissements: 0.5     # équipements et dispositifs à moitié prix (ville de 90 foyers) ; sous-agents inchangés
 hypermarche:                       # enseigne extérieure agressive : riposte quand les supérettes sont chères
   agressif: true
-  seuil_indice: 0.98
+  seuil_indice: 1.02               # au-dessus des prix conseillés (1,00) : les prix neutres ne déclenchent rien
   reactivite: 0.6
   remise_max: 0.25
   relachement: 0.01

@@ -97,7 +97,7 @@ def decisions_schema(slots: list[str]) -> dict:
         "publicites": _arr(_obj({"media": _enum("radio", "affichage", "reseaux"), "budget": N, "texte": S,
                                  "quartiers": _arr(S), "age_min": I, "age_max": I})),
         "fidelite": _obj({"modifier": B, "actif": B, "points_par_euro": N, "valeur_point": N, "seuil_utilisation": I,
-                          "bonus_inscription": I, "donnees_demandees": _arr(_enum("age", "quartier", "foyer", "email", "telephone")),
+                          "bonus_inscription": I, "donnees_demandees": _arr(_enum(*CARD_FIELDS)), "questions_inscription": _arr(S),
                           "prix_membres": _arr(_obj({"produit": S, "prix": N}))}),
         "rayons": _arr(_obj({"produit": S, "rayon": I, "segment": I, "niveau": _enum(*NIVEAUX), "facings": I})),
         "mises_en_avant": _obj({"modifier": B, "entree": _arr(S), "tete_gondole_1": _arr(S), "tete_gondole_2": _arr(S), "caisse": _arr(S)}),
@@ -214,7 +214,7 @@ def empty_decisions() -> dict:
             "prospectus": {"envoyer": False, "quartiers": [], "exemplaires": 0, "texte": "", "prix_annonces": []},
             "messages": [], "publicites": [],
             "fidelite": {"modifier": False, "actif": False, "points_par_euro": 1, "valeur_point": 0.01, "seuil_utilisation": 500,
-                         "bonus_inscription": 0, "donnees_demandees": [], "prix_membres": []},
+                         "bonus_inscription": 0, "donnees_demandees": [], "questions_inscription": [], "prix_membres": []},
             "rayons": [], "mises_en_avant": {"modifier": False, "entree": [], "tete_gondole_1": [], "tete_gondole_2": [], "caisse": []},
             "stocks_cibles": [], "commandes": [], "horaires": [], "assortiment": {"ajouter": [], "retirer": []},
             "dates_courtes": {"modifier": False, "actif": False, "jours_avant_peremption": 1, "remise_pct": 30},
@@ -360,6 +360,19 @@ def merge_partials(items: list[dict]) -> dict:
     return out
 
 
+CARD_FIELDS = ("age", "quartier", "foyer", "email", "telephone", "profession", "revenus", "vehicule", "animaux", "regime",
+               "connu_par")
+MAX_QUESTIONS = 5  # questions d'un questionnaire (et questions libres de la fiche d'inscription)
+MAX_COUPONS = 20  # coupons aux conditions distinctes par décision (un coupon peut viser autant de membres que voulu)
+
+
+def _capped(items: list, n: int, label: str, ko: list) -> list:
+    """Les `n` premiers éléments ; ceux au-delà sont signalés, jamais écartés en silence."""
+    if len(items) > n:
+        ko.append(f"{label} : {len(items) - n} élément(s) au-delà de la limite technique de {n} par décision, ignorés")
+    return items[:n]
+
+
 FRIDGE_NEEDS = {"lait", "laitiers", "oeufs", "proteines", "plats"}
 
 
@@ -441,7 +454,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
 
     # 3. Prix
     prices_changed = 0
-    for change in d["prix"][:80]:
+    for change in _capped(d["prix"], 200, "prix", ko):
         changed, notes = apply_price(world, store, change.get("produit"), change.get("prix"))
         prices_changed += changed
         ko.extend(notes)
@@ -450,7 +463,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
 
     # 3 bis. Prix individuels : le prix qu'un membre identifié voit et paie (0 = retour au prix normal)
     set_n, cleared = 0, 0
-    for line in d["prix_individuels"][:300]:
+    for line in _capped(d["prix_individuels"], 20000, "prix_individuels", ko):
         mid, pid, price = (line or {}).get("membre"), (line or {}).get("produit"), (line or {}).get("prix")
         m = store.member_by_id(str(mid or ""))
         if m is None:
@@ -474,6 +487,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
                   f"({sum(len(v) for v in store.individual_prices.values())} en vigueur pour {len(store.individual_prices)} membres)")
 
     # 4. Fidélité
+    signup_questions = None
     f = d["fidelite"]
     if f["modifier"]:
         L = store.loyalty
@@ -482,7 +496,10 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
         L["valeur_point"] = max(0.001, min(0.1, float(f["valeur_point"])))
         L["seuil_utilisation"] = max(50, min(5000, int(f["seuil_utilisation"])))
         L["bonus_inscription"] = max(0, min(1000, int(f["bonus_inscription"])))
-        L["donnees_demandees"] = [x for x in f["donnees_demandees"] if x in ("age", "quartier", "foyer", "email", "telephone")]
+        L["donnees_demandees"] = list(dict.fromkeys(x for x in f["donnees_demandees"] if x in CARD_FIELDS))
+        if "questions_inscription" in f:  # modérées avec les autres textes (étape 10), appliquées ensuite
+            signup_questions = [clean_text(q, 200) for q in f["questions_inscription"][:MAX_QUESTIONS]
+                                if isinstance(q, str) and q.strip()]
         store.member_prices = {}
         for x in f["prix_membres"][:30]:
             pid, price = x.get("produit"), x.get("prix")
@@ -571,7 +588,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
         ok.append("mises en avant : " + "; ".join(f"{k} = {', '.join(v) or 'vide'}" for k, v in store.secondary.items()))
 
     # 7. Stocks et commandes
-    for x in d["stocks_cibles"][:80]:
+    for x in _capped(d["stocks_cibles"], 200, "stocks_cibles", ko):
         pid = x.get("produit")
         if valid_pid(pid):
             store.targets[pid] = max(0, min(300, int(x.get("stock_cible", 0))))
@@ -619,7 +636,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
         texts.append(("prospectus", clean_text(pr["texte"], 600)))
     for i, x in enumerate(d["messages"][:3]):
         texts.append((f"message{i}", clean_text(x.get("texte", ""), 160 if x.get("canal") == "sms" else 500)))
-    for i, x in enumerate(d["coupons"][:6]):
+    for i, x in enumerate(d["coupons"][:MAX_COUPONS]):
         if x.get("texte"):
             texts.append((f"coupon{i}", clean_text(x["texte"], 200)))
     for i, x in enumerate(d["publicites"][:3]):
@@ -629,8 +646,10 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
     for i, x in enumerate(d["reponses_avis"][:5]):
         texts.append((f"avis{i}", clean_text(x.get("texte", ""), 300)))
     e = d["enquete"]
-    questions = [clean_text(q, 200) for q in e["questions"][:3] if isinstance(q, str) and q.strip()] if e["lancer"] else []
+    questions = [clean_text(q, 200) for q in _capped(e["questions"], MAX_QUESTIONS, "enquête : questions", ko)
+                 if isinstance(q, str) and q.strip()] if e["lancer"] else []
     texts.extend((f"question{i}", q) for i, q in enumerate(questions))
+    texts.extend((f"inscription{i}", q) for i, q in enumerate(signup_questions or []))
     verdicts = await moderate(world, store, texts) if texts else {}
 
     def accepted(tid) -> bool:
@@ -642,6 +661,12 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
             world.journal.incident(day, store.id, "moderation", {"texte": tid, "raison": v[1]})
             return False
         return True
+
+    if signup_questions is not None:
+        kept = [q for i, q in enumerate(signup_questions) if accepted(f"inscription{i}")]
+        store.loyalty["questions_inscription"] = kept
+        if kept:
+            ok.append(f"fiche d'inscription : {len(kept)} question(s) libre(s), posée(s) à chaque nouveau membre")
 
     # 11. Coupons
     def amounts_match(text, offer, value, minimum, duration, expiration=None):
@@ -665,7 +690,7 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
         return not percent or not offer.startswith("remise_pct") or number(percent[1]) == value
 
     flyer_coupons = []
-    for i, x in enumerate(d["coupons"][:6]):
+    for i, x in enumerate(_capped(d["coupons"], MAX_COUPONS, "coupons", ko)):
         offre = x.get("offre")
         if offre not in OFFRES:
             continue
@@ -937,9 +962,11 @@ async def apply_decisions(world, store, d: dict, workspace: Path | None = None, 
             ok.append("message transmis au concurrent")
         else:
             from . import rencontre
-            ko.append("message au concurrent non transmis : vous ne vous parlez qu'au rendez-vous du dimanche soir (rencontres.md)"
-                      if rencontre.active(world) else
-                      "message au concurrent non transmis : les gérants ne peuvent pas communiquer dans cette partie")
+            if rencontre.active(world):
+                rencontre.post(world, store, role, msg)
+                ok.append("mot écrit au concurrent : il lui sera remis au début du prochain rendez-vous du dimanche soir")
+            else:
+                ko.append("message au concurrent non transmis : les gérants ne peuvent pas communiquer dans cette partie")
 
     # 18. Message à l'équipe, journal
     me = clean_text(d.get("message_equipe", ""), 1500)

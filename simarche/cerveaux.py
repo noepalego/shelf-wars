@@ -510,7 +510,9 @@ class IABrain:
             else:
                 lines.append(f"- {sid} « {w.stores[sid].nom} » : ne connaît pas encore vraiment")
         for sid, sv in ctx["enquetes"].items():
-            link = "liaison à sa carte facultative" if sv.get("membre_propose") else "réponses anonymes"
+            link = ("questions de la fiche d'inscription à sa carte, qu'il vient de remplir : ses réponses iront dans sa fiche, "
+                    "il peut aussi n'en donner aucune" if sv.get("fiche_inscription")
+                    else "liaison à sa carte facultative" if sv.get("membre_propose") else "réponses anonymes")
             lines.append(f"Enquête de {sid} « {w.stores[sid].nom} », invitation {invitation_id(sid, sv)} ({reward_text(sv)} ; {link}) : "
                          + " / ".join(f"Q{i + 1}. {q}" for i, q in enumerate(sv["questions"])))
         return "\n".join(lines)

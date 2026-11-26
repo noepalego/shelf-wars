@@ -10,7 +10,8 @@ Les dirigeants ne la connaissent pas d'avance : ils voient seulement les actuali
 
 Réglages (`hypermarche` dans la configuration) :
   agressif: true          active la réaction
-  seuil_indice: 0.98      indice des supérettes au-delà duquel l'hypermarché attaque
+  seuil_indice: 1.02      indice des supérettes au-delà duquel l'hypermarché attaque (1,00 = prix conseillés :
+                          à 0,98, des prix simplement neutres faisaient monter la remise chaque semaine jusqu'au plafond)
   reactivite: 0.6         points de remise ajoutés par point d'indice au-dessus du seuil, chaque semaine
   remise_max: 0.25        remise maximale
   relachement: 0.01       baisse hebdomadaire de la remise quand les supérettes sont sous le seuil
@@ -52,7 +53,7 @@ def weekly(world, day: int) -> str | None:
     if idx is None:
         return None
     base, old = st["remise_base"], st["remise"]
-    seuil = float(h.get("seuil_indice", 0.98))
+    seuil = float(h.get("seuil_indice", 1.02))
     if idx > seuil:
         new = min(float(h.get("remise_max", 0.25)), old + float(h.get("reactivite", 0.6)) * (idx - seuil))
     else:

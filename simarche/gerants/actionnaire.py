@@ -16,6 +16,10 @@ avant les sessions.
   <motif>`). Accordé dans la limite du plafond (qui monte avec la confiance), refusé sous dernier avertissement. Un
   apport augmente la trésorerie, pas le résultat, et augmente d'autant les capitaux sur lesquels le rendement est attendu.
 
+- Comparaison au concurrent (`comparaison_concurrent`) : l'actionnaire lit les comptes publiés du magasin concurrent.
+  Une revue n'est réussie que si le résultat atteint aussi `part_du_concurrent` × le résultat du concurrent sur la même
+  période (quand celui-ci est positif). Évaluation relative : battre l'objectif ne suffit plus si l'autre fait bien mieux.
+
 Les lettres jugent des résultats, jamais des méthodes : elles ne suggèrent aucune stratégie.
 """
 from __future__ import annotations
@@ -139,12 +143,45 @@ def fired_text(world) -> str:
     return " et ".join(ROLE_NAMES[r] for r in roles) + (" seront" if len(roles) > 1 else " sera")
 
 
+# ============================================================================ comparaison au concurrent
+def record_profit(store, day: int) -> None:
+    """Résultat cumulé du magasin chaque dimanche soir (pour comparer des périodes entre magasins)."""
+    store.__dict__.setdefault("profit_dimanches", {})[day] = store.profit
+
+
+def rival_result(world, store, start: int) -> tuple[str, float] | None:
+    """Meilleur résultat d'un concurrent depuis `start` (comptes publiés), ou None si inconnu."""
+    best = None
+    for other in world.stores.values():
+        if other.id == store.id or other.bankrupt:
+            continue
+        base = other.__dict__.get("profit_dimanches", {}).get(start)
+        if base is None:
+            continue
+        r = other.profit - base
+        if best is None or r > best[1]:
+            best = (other.nom, r)
+    return best
+
+
+def rival_bar(world, store, start: int) -> tuple[str, float, float] | None:
+    """(nom du concurrent, son résultat, seuil exigé) quand la comparaison est active et le concurrent bénéficiaire."""
+    c = cfg_of(world)
+    if not c.get("comparaison_concurrent"):
+        return None
+    rv = rival_result(world, store, start)
+    if rv is None or rv[1] <= 0:
+        return None
+    return rv[0], rv[1], rv[1] * float(c.get("part_du_concurrent", 0.9))
+
+
 # ============================================================================ chaque dimanche soir
 def weekly(sim, store) -> list[str]:
     """Lettre de la semaine, revue si c'est le moment, licenciement si nécessaire. Renvoie les lignes de console."""
     w = sim.world
     day = w.day
     s = state(w, store)
+    record_profit(store, day)
     if day == 0 or store.bankrupt:
         return []
     if day >= next_review_day(w, s):
@@ -156,6 +193,10 @@ def weekly(sim, store) -> list[str]:
     letter = (f"Point de la semaine. Résultat depuis le début de la période de revue ({temps.short_label(start)}) : "
               f"{e(result)}, pour {e(prorata)} attendus à ce stade ({e(target)} sur la période complète). "
               f"Prochaine revue : {temps.label(next_review_day(w, s) - 1)} au soir. Situation : {warning_text(w, s)}.")
+    bar = rival_bar(w, store, start)
+    if bar:
+        letter += (f" Comptes publiés du concurrent « {bar[0]} » sur la même période : {e(bar[1])}. À la revue, je "
+                   f"n'accepterai pas moins de {e(bar[2])} de votre part s'il garde ce rythme.")
     s["lettres"].append({"jour": day, "type": "point", "texte": letter})
     return []
 
@@ -177,9 +218,16 @@ def review(sim, store, s: dict, day: int, final: bool = False) -> list[str]:
             f"Résultat : {e(result)} pour un objectif de {e(target)}. Marge brute : {e(margin)}"
             + (f" ({growth * 100:+.0f} % sur la période précédente)" if growth is not None else "")
             + f". Part des passages : {share * 100:.0f} %.")
+    bar = rival_bar(w, store, start)
+    if bar:
+        head += f" Résultat du concurrent « {bar[0]} » sur la même période (comptes publiés) : {e(bar[1])}."
+    behind = bool(bar) and result < bar[2]
     lines = []
     fired = []
-    if result >= target:
+    if result >= target and behind:
+        head += (f" Votre objectif est atteint, mais vous faites moins de {float(cfg_of(w).get('part_du_concurrent', 0.9)) * 100:.0f} % "
+                 "du résultat de votre concurrent avec le même capital : ce n'est pas suffisant.")
+    if result >= target and not behind:
         verdict = "satisfait"
         if not final:
             s["avertissements"] = 0
@@ -217,6 +265,7 @@ def review(sim, store, s: dict, day: int, final: bool = False) -> list[str]:
     per_day = result / length
     s["meilleur_jour"] = per_day if s.get("meilleur_jour") is None else max(s["meilleur_jour"], per_day)
     s["revues"].append({"jour": day, "debut": start, "resultat": round(result, 2), "objectif": round(target, 2),
+                        "resultat_concurrent": None if not bar else round(bar[1], 2), "derriere_concurrent": behind,
                         "marge": round(margin, 2), "croissance_marge": None if growth is None else round(growth, 4),
                         "part_passages": round(share, 4), "capital": round(capital_now, 2), "verdict": verdict,
                         "avertissements": s["avertissements"], "exigence": s["exigence"], "finale": final})
@@ -326,6 +375,11 @@ def rules_section(world, role: str, store) -> list[str]:
              + f" ; après un échec, il baisse de "
              f"{float(c.get('exigence_baisse', 0.15)) * 100:.0f} %. Il ne dépasse jamais le meilleur résultat que le magasin a déjà "
              "réalisé sur une période de même durée (sans jamais descendre sous l'équilibre) : il est toujours atteignable.")
+    if c.get("comparaison_concurrent"):
+        L.append(f"Il lit aussi les comptes publiés du magasin concurrent, qui a reçu le même capital : une revue n'est réussie que "
+                 f"si votre résultat atteint en plus au moins {float(c.get('part_du_concurrent', 0.9)) * 100:.0f} % de celui du "
+                 "concurrent sur la même période (quand le concurrent gagne de l'argent). Faire moins bien que lui compte comme un "
+                 "objectif manqué.")
     L.append("- Objectif atteint : il est satisfait, efface les avertissements et vous fait davantage confiance (plus de capital "
              "disponible).\n"
              f"- Objectif manqué mais marge brute en hausse d'au moins {float(c.get('sursis_croissance_marge', 0.10)) * 100:.0f} % "

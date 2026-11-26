@@ -377,6 +377,11 @@ def refuse(world, store, qid: str, role: str, workspace: Path | None = None) -> 
 
 def stop(world, store, name: str, role: str) -> tuple[bool, str]:
     cur = store.systems.get(name)
+    if cur and cur.get("etat") == "arrete":  # déjà arrêté (au guichet pendant la session, ou par l'équipier) : rien à refuser
+        from .. import temps
+        by = {"gerant": "le gérant", "marketing": "le responsable marketing"}.get(cur.get("arrete_par"), cur.get("arrete_par") or "?")
+        when = temps.short_label(cur["arrete_le"]) if isinstance(cur.get("arrete_le"), int) else "?"
+        return True, f"« {name} » était déjà arrêté ({when}, par {by}) : rien de plus à faire"
     if not cur or cur.get("etat") != "actif":
         return False, f"aucun dispositif en service sous le nom « {name} »"
     cur["etat"], cur["arrete_le"], cur["arrete_par"] = "arrete", world.day, role

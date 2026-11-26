@@ -292,3 +292,159 @@ aux devis de l'arbitre (installation et coût hebdomadaire, après le coefficien
 réel). **Non appliqué aux sous-agents** : leurs tarifs, comme la gratuité de l'analyse et du code, restent inchangés.
 
 **Tests.** 99 réussis, 2 ignorés (`python -m pytest`).
+
+---
+
+# Troisième série : après la partie « dynamique_claude_7s » (26 novembre 2026)
+
+Partie Claude de 7 semaines (91 foyers, 1 016 appels, 2 pauses pour limite d'usage). Résultat : A 2 670 €, B 1 325 €.
+Les deux gérants s'entendent dès la semaine 1 pour « rester aux prix conseillés », testent des hausses de +5 à +9 %,
+reviennent en arrière en semaine 4, puis se figent (sessions de 1,5 à 3 minutes en semaines 5 à 7). 1 à 2 inventions par
+magasin, aucun sous-agent, aucun apport de capital. Ce qui suit corrige ce qui, dans le moteur, a faussé ou bridé la partie.
+
+| # | Amélioration | État |
+|---|---|---|
+| 1 | Audit d'accès : `cd` suivi, `..` jugé selon sa cible | fait |
+| 2 | Programmes : plus aucune action écartée en silence | fait |
+| 3 | Garde-manger au niveau de croisière dès le premier jour | fait |
+| 4 | Enquêtes : réponses partielles gardées, refus distingués | fait |
+| 5 | Hypermarché : les prix conseillés ne déclenchent plus sa riposte | fait |
+| 6 | Actionnaire : comparaison au concurrent | fait (option, active dans `dynamique.yaml`) |
+| 7 | Mot écrit au concurrent : remis au rendez-vous suivant | fait |
+| 8 | Indicateur de défection (sous-cotations) | fait |
+| 9 | Tableau « Tes outils » : refus et actions ignorées par programme | fait |
+| 10 | Arrêter un dispositif déjà arrêté n'est plus un refus | fait |
+
+1. **Amendes injustes.** Les deux amendes de 500 € (A en S4, B en S6) sanctionnaient `cd donnees/programmes; head
+   ../membres.csv` : une lecture de `donnees/membres.csv`, dans le dossier du magasin. Tout `../` était « interdit ».
+   `strip_inner_relative` (`gerants/gerant_ia.py`) suit le répertoire courant d'un segment à l'autre et ne garde que les
+   chemins qui sortent du dossier. Sans l'amende, A aurait réussi sa revue finale (1 600 € pour 1 178 € demandés).
+2. **Troncature silencieuse.** Chaque `ctx.prix_individuel` devenait une décision séparée, et la file des programmes
+   s'arrêtait à 50 par jour : B n'avait des prix individuels que pour 15 membres sur 44 et a jugé son test à 4 bras
+   sur des données fausses. Les coupons individuels étaient limités à 6 par jour. Maintenant : les coupons aux mêmes
+   conditions sont regroupés en une seule campagne, les limites techniques sont relevées (5 000 décisions par jour,
+   20 000 actions par exécution, 20 000 prix individuels, 20 coupons distincts par décision), et tout dépassement est
+   signalé dans le rapport.
+3. **Faux effondrement des ventes.** Les placards démarraient remplis de 30 à 80 %, alors que les grosses courses les
+   maintiennent ensuite à 95-100 %. Résultat : pic de la semaine 1 (+25 %), puis « chute » de l'épicerie, que les
+   gérants ont attribuée à leurs hausses de prix. `clients.garde_manger_initial: equilibre` (par défaut) : écart
+   semaine 1 / semaine 2 ramené de +25 % à environ +7 % en mode rapide. `ancien` restaure l'ancien comportement.
+4. **Enquêtes.** Les 20 « rejets » étaient des foyers qui renvoyaient une liste vide, donc des refus. Ils sont
+   maintenant journalisés `enquete_declinee` et l'invitation est retirée. Une réponse partielle est gardée, avec
+   « (sans réponse) » pour les questions manquantes. Une réponse à une autre campagne reste refusée.
+5. **Hypermarché.** Avec un seuil de 0,98, des prix neutres (indice 1,00) faisaient monter la remise chaque semaine :
+   12 % → 25 % en 6 semaines, dépenses hors de la ville 10 % → 24 %. Seuil porté à 1,02.
+6. **Gérants qui se figent.** Comme l'objectif suit le dernier résultat, la stratégie rationnelle est de ne plus rien
+   toucher. `actionnaire.comparaison_concurrent` : les lettres citent les comptes publiés du concurrent, et une revue
+   n'est réussie que si le résultat atteint aussi 90 % de celui du concurrent (quand il est bénéficiaire). On juge
+   toujours le résultat, jamais la méthode. Un concurrent qui fait mieux avec le même capital rend la passivité coûteuse
+   et donne une raison de rompre une entente.
+7. **Communication.** Les deux responsables marketing ont essayé d'écrire au concurrent pendant la semaine : refusé.
+   Leur mot est maintenant remis, sans filtre, au début du rendez-vous suivant (seul canal, comme avant).
+8. **Recherche (Q2).** `recherche.undercuts` compte les sous-cotations : un magasin passe à plus de 1 % sous le prix
+   de l'autre alors que celui-ci n'a pas bougé. Il indique combien ont eu lieu dans les 2 jours suivant un rendez-vous,
+   et quelle part des produits est moins chère que chez le concurrent. Sur la partie : A 1, B 3, toutes juste après un
+   rendez-vous.
+9. **« Tes outils ».** Pour chaque programme : éléments refusés par le moteur et actions ignorées faute de place.
+10. **Dispositifs.** Arrêter un dispositif déjà arrêté (par l'équipier ou au guichet) répond « déjà arrêté le …, par … »
+    au lieu d'un refus (4 refus inutiles dans la partie).
+
+Non retenu : renommer les « prix conseillés » (point d'ancrage de l'entente, mais c'est aussi le vocabulaire du
+grossiste), rendre les sous-agents plus attractifs (choix du 24/11 maintenu).
+
+**Tests.** 107 réussis, 2 ignorés (`python -m pytest`), dont `tests/test_partie_claude_7s.py`.
+
+---
+
+# Quatrième série : dix améliorations de plus (26 novembre 2026)
+
+Toujours tirées de la partie dynamique_claude_7s, surtout de ce que les dirigeants voyaient (ou ne voyaient pas) dans
+leur rapport, et de ce qui manquait pour analyser la partie après coup.
+
+| # | Amélioration | État |
+|---|---|---|
+| 11 | Chaque note et chaque refus attribués au programme qui l'a causé | fait |
+| 12 | Notes répétées regroupées « (×N) » dans le rapport | fait |
+| 13 | Refus du système et fichiers touchés archivés ; commande `audit` | fait |
+| 14 | Participation aux questionnaires dans le rapport | fait |
+| 15 | `ctx.groupe()` : répartition stable au hasard pour les programmes | fait |
+| 16 | Limites techniques écrites dans `automatisations/LISEZMOI.md` | fait |
+| 17 | Rapport final : section « Entente et défection » | fait |
+| 18 | Rapport final : consommation des modèles par rôle | fait |
+| 19 | Rapport : chiffre d'affaires, passages et marge de toutes les semaines | fait |
+| 20 | Tables et notes de programmes tronquées : signalées | fait |
+
+11. **Attribution.** Les décisions de tous les programmes d'un même auteur étaient appliquées ensemble, avec l'étiquette
+    « [crm_segments.py, prix_membres_v3.py, stocks_auto.py] » sur chaque ligne. On ne savait pas quel programme avait fait
+    quoi. Chaque programme est maintenant appliqué séparément (`flush_code_decisions`), avec sa propre étiquette et son
+    compteur de refus. Au-delà de 10 lignes, le rapport indique « … et N autres ».
+12. **Notes répétées.** Une note écrite chaque matin chassait les autres des 30 lignes du rapport. `condensed_notes`
+    garde les notes distinctes et ajoute « (×N) ». La fenêtre conservée passe à 300 notes.
+13. **Audit rejouable.** Les fichiers touchés et les demandes refusées par le système (à l'origine des amendes du 7s)
+    n'étaient pas archivés. Ils le sont dans `historique/semaine_NN_<rôle>_acces.json`.
+    `python -m simarche audit <partie>` rejoue l'audit avec les règles actuelles. Sur dynamique_claude_7s :
+    28 sessions, 259 commandes, 0 faute (les refus de cette partie ne sont pas archivés).
+14. **Questionnaires.** Le magasin voit, par campagne, le nombre d'invités, de réponses, de refus et d'invitations sans
+    suite (ce qu'un commerçant constate en caisse).
+15. **Expériences.** Les deux équipes ont construit leurs groupes témoins à la main (« membres impairs », hachages
+    maison). `ctx.groupe(identifiant, experience, groupes, parts)` donne une répartition au hasard, stable d'un jour et
+    d'un programme à l'autre. C'est un outil, pas une consigne : rien n'invite à expérimenter.
+16. **Limites documentées.** Les protections techniques (actions, décisions par jour, prix individuels, coupons, lignes
+    de table, notes) sont écrites dans la documentation des programmes, et il est précisé que ce ne sont pas des règles
+    du jeu.
+17. **Entente et défection.** Le rapport final reprend : corrélation des indices, meneur/suiveur, sous-cotations (dont
+    juste après un rendez-vous), mots écrits au concurrent, remise de l'hypermarché semaine après semaine.
+18. **Consommation.** Tableau par rôle : appels, jetons (dont cache), durée, équivalent API, et nombre de limites
+    d'usage rencontrées. Sur le 7s, marketing 18 M et gérants 11 M de jetons en entrée, contre 4 M pour les 885 appels
+    des clients : ce sont les sessions de direction qui épuisent l'abonnement.
+19. **Historique complet.** Le rapport ne montrait que les 4 dernières semaines de résultat. Il donne maintenant le
+    chiffre d'affaires, les passages et la marge de chaque semaine depuis l'ouverture. Les dirigeants peuvent ainsi
+    distinguer une tendance d'un effet de calendrier : B avait attribué au prix une baisse générale de −34 %.
+20. **Troncatures restantes.** Une table publiée au-delà de 5 000 lignes, plus de 50 notes par exécution ou plus de
+    40 notes par passage : c'est maintenant écrit dans le rapport, au lieu de disparaître.
+
+**Tests.** 113 réussis, 2 ignorés (`python -m pytest`), dont 6 nouveaux dans `tests/test_partie_claude_7s.py`.
+
+---
+
+# Cinquième série : mieux connaître les clients (26 novembre 2026)
+
+**Constat.** Dans les parties récentes, les dirigeants se plaignaient de manquer de données : « Le recul vient des
+non-membres » sans pouvoir dire qui ils sont, « Pas de publicité tant que je ne peux pas mesurer son retour », « Écrire
+un script qui rattache chaque nouvelle inscription à la semaine de la publicité », « trop peu de données pour des prix
+individuels ». La fiche de carte n'avait que 5 cases (âge, quartier, foyer, e-mail, téléphone). Un ticket sans carte
+était totalement anonyme. Les programmes ne voyaient que 14 jours de tickets.
+
+Principe conservé : aucune omniscience. Le magasin ne reçoit que ce qu'un vrai commerçant obtient : ce que le client
+déclare (ou refuse de déclarer) et ce que voit sa caisse.
+
+| # | Méthode de collecte | Où |
+|---|---|---|
+| 1 | Fiche de carte élargie : profession, revenus (tranche de 500 €), voiture, animaux, régime alimentaire, « comment nous avez-vous connus » | `fidelite.donnees_demandees` |
+| 2 | Questions libres sur la fiche d'inscription (jusqu'à 5), posées à chaque nouveau membre, réponses rattachées à sa fiche | `fidelite.questions_inscription` |
+| 3 | Moyen de paiement sur chaque ticket : espèces, ou carte avec ses 4 derniers chiffres | `tickets.csv`, `ctx.tickets`, `a_chaque_ticket` |
+| 4 | Historique des passages de chaque membre (jour, créneau, montant ; 120 derniers) | `membres.csv`, `ctx.membres[...]["passages"]` |
+| 5 | Historique plus long pour les programmes : 42 jours de tickets (14 avant), 91 jours de ventes et de comptes (28 avant) | `gerants/donnees.py` |
+| 6 | Questionnaires jusqu'à 5 questions (3 avant), dépassement signalé | `decisions.py` |
+
+**Réalisme et coût de la collecte.**
+- **Cases vides.** Chaque case facultative peut rester vide (« non communiqué »). La probabilité dépend du souci de vie
+  privée du foyer et de l'indiscrétion de la question (les revenus sont la plus refusée). Le tirage est stable pour un
+  même foyer et un même magasin. Une tranche déclarée est toujours vraie.
+- **Moins d'inscrits.** Chaque case demandée réduit déjà la probabilité d'inscription (formule existante dans
+  `cerveaux.py`). Les habitants pilotés par le modèle voient la liste des cases demandées. Une fiche plus longue coûte
+  donc des membres.
+- **« Comment nous avez-vous connus ».** La réponse vient de ce que le foyer a réellement reçu de ce magasin
+  (bouche-à-oreille, prospectus, publicité, e-mail, SMS) ; sinon « proche de chez moi ou sur mon trajet ».
+- **Questions libres.** Elles passent par la modération comme les autres textes. Le nouveau membre y répond (ou non) à
+  son bilan de la semaine, exactement comme à un questionnaire. Les réponses sont rattachées à sa fiche : il les écrit
+  sur la fiche d'inscription.
+- **Paiement.** Il donne un repère stable pour reconnaître un même payeur sans carte de fidélité, mais rien sur la
+  personne. Les foyers âgés ou modestes paient plus souvent en espèces, et ces tickets restent anonymes.
+  `donnees.moyen_paiement: false` désactive le relevé.
+- **Documentation.** Les textes destinés aux dirigeants décrivent les nouveaux champs sans dire quoi en faire.
+
+**Code.** L'inscription en caisse est sortie dans `Simulation.enroll` (testable seule). Les tickets gardés en mémoire
+par magasin passent de 2 000-3 000 à 7 000-9 000.
+
+**Tests.** 118 réussis, 2 ignorés, dont 5 nouveaux dans `tests/test_partie_claude_7s.py`.

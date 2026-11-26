@@ -39,6 +39,9 @@ DEFAULTS: dict = {
         "variantes_par_foyer": 0,
         "attachement_source": 1.5,   # bonus d'utilité du lieu choisi par le foyer-source (plus haut = variantes plus suiveuses)
         "ecart_variantes": 0.08,     # écart type des traits de la variante autour de ceux de sa source
+        # « equilibre » : placards au niveau de croisière dès le premier jour (pas de pic de ventes en semaine 1) ;
+        # « ancien » : placards remplis de 30 à 80 % au hasard (comportement des parties d'avant le 26/11/2026).
+        "garde_manger_initial": "equilibre",
     },
     "gerants": {
         "cadence_semaines": 1,     # une session de réflexion toutes les N semaines ; le code du gérant tourne entre-temps
@@ -76,6 +79,9 @@ DEFAULTS: dict = {
         "max_tours": 200,          # protection technique (boucles), pas une limite de réflexion
         "timeout_s": 3600,
     },
+    # Ce que la caisse enregistre en plus du ticket : moyen de paiement et 4 derniers chiffres de la carte bancaire
+    # (de quoi reconnaître un même payeur sans carte de fidélité, comme sur un vrai terminal).
+    "donnees": {"moyen_paiement": True},
     # Actionnaire algorithmique (sans IA) : revues de rendement, avertissements, licenciement, apports de capital.
     "actionnaire": {
         "actif": False,
@@ -92,6 +98,8 @@ DEFAULTS: dict = {
         "apports": True,                   # capital supplémentaire sur demande (python outils/moteur.py apport ...)
         "plafond_apports": 5000.0,         # capital disponible sur demande au départ
         "plafond_par_confiance": 2500.0,   # en plus, par revue où l'objectif est atteint
+        "comparaison_concurrent": False,   # revue réussie seulement si le résultat atteint aussi une part de celui du concurrent
+        "part_du_concurrent": 0.9,         # ... cette part (comptes du concurrent sur la même période, s'il est bénéficiaire)
     },
     # Rendez-vous hebdomadaire entre dirigeants concurrents : libre, sans modération ni sanction, sans accord imposé.
     "rencontre": {
@@ -185,7 +193,7 @@ DEFAULTS: dict = {
     },
     "hypermarche": {"remise": 0.12, "trajet_voiture_min": 20, "trajet_bus_min": 45, "carburant": 3.0,
                     # Enseigne extérieure agressive (concurrence_externe.py) : riposte quand les supérettes sont chères.
-                    "agressif": False, "seuil_indice": 0.98, "reactivite": 0.6, "remise_max": 0.25, "relachement": 0.01},
+                    "agressif": False, "seuil_indice": 1.02, "reactivite": 0.6, "remise_max": 0.25, "relachement": 0.01},
     "marche": {"majoration": 0.10, "bonus_qualite": 0.15},
     "evenements": [
         {"semaine": 20, "type": "inflation", "categories": ["proteines", "laitiers", "lait"], "hausse": 0.15},

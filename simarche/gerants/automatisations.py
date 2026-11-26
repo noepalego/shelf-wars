@@ -12,6 +12,7 @@ les mêmes règles et les mêmes coûts que les décisions des sessions.
 from __future__ import annotations
 
 import ast
+import hashlib
 import math
 import multiprocessing as mp
 import random
@@ -25,6 +26,7 @@ HOOK_ARITY = {"chaque_matin": 1, "chaque_creneau": 1, "chaque_dimanche": 1, "per
               "a_chaque_observation": 3, "a_chaque_changement_prix": 2, "a_chaque_evenement": 2}
 MAX_CODE = 60000
 MAX_ACTIVE = 200  # protection technique seulement
+MAX_ACTIONS = 20000  # actions par exécution : protection technique, toute action au-delà est signalée
 DELAI_BASE_S = 3.0
 
 ALLOWED_NODES = {
@@ -204,12 +206,30 @@ class Ctx:
         self.actions.append({"type": "annoter", "membre": str(membre), "tags": [str(t)[:40] for t in (tags or [])][:12],
                              "note": None if note is None else str(note)[:300]})
 
+    def groupe(self, identifiant, experience, groupes=("temoin", "traite"), parts=None):
+        """Répartition stable au hasard : le même identifiant (membre, produit…) tombe toujours dans le même groupe pour
+        une même expérience, d'un jour à l'autre et d'un programme à l'autre. `parts` : poids des groupes (égaux sinon)."""
+        groupes = [str(g) for g in groupes] or ["temoin", "traite"]
+        poids = [max(0.0, float(x)) for x in (parts or [1] * len(groupes))][:len(groupes)]
+        poids += [0.0] * (len(groupes) - len(poids))
+        total = sum(poids) or 1.0
+        u = int(hashlib.sha256(f"{experience}|{identifiant}".encode()).hexdigest()[:12], 16) / 16 ** 12
+        acc = 0.0
+        for g, w in zip(groupes, poids):
+            acc += w / total
+            if u < acc:
+                return g
+        return groupes[-1]
+
     def noter(self, texte):
         self.logs.append(str(texte)[:300])
 
     def publier(self, nom, lignes, remplacer=True):
         """Publie une table (liste de dictionnaires) dans donnees/programmes/<nom>.csv et ctx.table(nom)."""
-        rows = [dict(l) for l in list(lignes)[:5000] if isinstance(l, dict)]
+        lignes = list(lignes)
+        if len(lignes) > 5000:
+            self.logs.append(f"table « {str(nom)[:60]} » : {len(lignes) - 5000} lignes au-delà de 5 000 non publiées (limite technique)")
+        rows = [dict(l) for l in lignes[:5000] if isinstance(l, dict)]
         self.actions.append({"type": "publier", "nom": str(nom)[:60], "lignes": rows, "remplacer": bool(remplacer)})
 
 
@@ -245,7 +265,8 @@ def _run_one(code: str, jobs: list, data: dict):
         fn(ctx, *args)
     if not ran:
         return None
-    return {"actions": actions[:500], "logs": logs[:50], "memoire": ctx.memoire}
+    return {"actions": actions[:MAX_ACTIONS], "ignorees": max(0, len(actions) - MAX_ACTIONS), "logs": logs[:50] + ([f"… {len(logs) - 50} autres notes non transmises (50 par exécution)"] if len(logs) > 50 else []),
+            "memoire": ctx.memoire}
 
 
 def _worker(conn) -> None:
@@ -264,6 +285,8 @@ def _worker(conn) -> None:
                 r = _run_one(code, jobs, data)
                 if r:
                     out["actions"] += [dict(a, source=name) for a in r["actions"]]
+                    if r.get("ignorees"):
+                        out.setdefault("ignorees", {})[name] = r["ignorees"]
                     out["logs"] += [f"[{name}] {l}" for l in r["logs"]]
                     out["memoire"] = r["memoire"] if isinstance(r["memoire"], dict) else out["memoire"]
             except Exception as e:  # erreur du code de l'agent
@@ -356,14 +379,15 @@ rien appliquer : `python outils/moteur.py tester automatisations/x.py`.
 - `ctx.tables`, `ctx.table(nom)` : tables publiées par tes programmes
 - `ctx.personnel` : salariés `{employe, prenom, poste, contrat, creneaux, creneaux_par_semaine, cout_creneau, debut, fin, depart, en_poste}`
 - `ctx.equipe` : derniers messages de l'équipe de direction `{jour, role, texte}`
-- `ctx.ventes(jours=7)` : `{jour, produit, quantite, ca, cout}` (28 jours au plus)
+- `ctx.ventes(jours=7)` : `{jour, produit, quantite, ca, cout}` (91 jours au plus)
 - `ctx.tickets(jours=7)` : `{ticket, jour, creneau, membre, total, sous_total, remise_coupons, remise_points, coupons,
-  articles: [{produit, quantite, prix_unitaire, total, promo, date_courte}]}` (14 jours au plus)
+  paiement (carte ou especes), carte_bancaire (4 derniers chiffres lus par le terminal, vide en espèces),
+  articles: [{produit, quantite, prix_unitaire, total, promo, date_courte}]}` (42 jours au plus)
 - `ctx.membres` : fichier de la carte `{membre, inscrit_jour, donnees, joignable_email, joignable_sms, points, visites,
-  total_depense, derniere_visite, tags, notes}` ; `ctx.membre(id)`
+  total_depense, derniere_visite, tags, notes, passages: [{jour, creneau, montant}] (120 derniers)}` ; `ctx.membre(id)`
 - `ctx.reponses` : réponses aux questionnaires `{enquete, jour, questions, reponses, membre}`
 - `ctx.coupons` : bons émis `{coupon, campagne, offre, valeur, produit, canal, debut, fin, membre, utilise, jour_utilisation}`
-- `ctx.compta(jours=7)` : comptes du jour `{jour, ventes, cout_des_ventes, demarque, marketing, ..., passages}`
+- `ctx.compta(jours=7)` : comptes du jour `{jour, ventes, cout_des_ventes, demarque, marketing, ..., passages}` (91 jours au plus)
 - `ctx.promotions` (en cours), `ctx.enquete_en_cours`, `ctx.rayons` (noms des rayons)
 - `ctx.prix_concurrent` : `{produit: prix}` de ton dernier relevé payé (`ctx.releve_concurrent` : détail et date)
 - `ctx.experiences_coupons` (résultats par groupe), `ctx.horaires`, `ctx.offres_locales`
@@ -372,8 +396,8 @@ rien appliquer : `python outils/moteur.py tester automatisations/x.py`.
   magasin (500 000 caractères au plus)
 - `ctx.hasard` : générateur aléatoire (`ctx.hasard.random()`)
 
-`ticket` : `{ticket, membre, fiche_membre, total, sous_total, remise_coupons, coupons, jour, creneau,
-articles: [{produit, quantite, prix_unitaire, total, promo}]}`.
+`ticket` : `{ticket, membre, fiche_membre, total, sous_total, remise_coupons, coupons, jour, creneau, paiement,
+carte_bancaire, articles: [{produit, quantite, prix_unitaire, total, promo}]}`.
 
 ## Ce que ton code peut faire
 
@@ -393,11 +417,18 @@ articles: [{produit, quantite, prix_unitaire, total, promo}]}`.
 - `ctx.annoter_membre(membre, tags=None, note=None)` : étiquettes et note dans ta fiche client.
 - `ctx.publier(nom, lignes, remplacer=True)` : publie une table (`donnees/programmes/<nom>.csv`, `ctx.table(nom)`).
 - `ctx.noter(texte)` (ou `print`) : une ligne dans ton prochain rapport.
+- `ctx.groupe(identifiant, experience, groupes=("temoin", "traite"), parts=None)` : répartition au hasard mais stable
+  (le même identifiant reste dans le même groupe pour la même expérience, jour après jour).
 
 Les dépenses passent par les mêmes règles et les mêmes coûts que tes décisions. Un programme ne peut ni acheter un
 dispositif ni engager un sous-agent : cela se décide pendant une session.
 
 ## Règles
+
+Limites techniques (protections, jamais des règles du jeu ; tout dépassement est signalé dans le rapport) : 20 000 actions
+par exécution, 5 000 décisions partielles par jour pour l'ensemble des programmes, 20 000 prix individuels et 20 coupons
+aux conditions différentes par décision (un même coupon peut viser autant de membres que voulu : les bons identiques
+émis par `ctx.emettre_coupon` sont regroupés), 5 000 lignes par table publiée, 50 notes par exécution.
 
 Python simplifié : pas d'`import` (`math` et `statistics` sont déjà disponibles), pas de classes, pas de noms
 commençant par `_`, pas d'accès aux fichiers ni au réseau. Chaque exécution dispose d'environ 3 secondes de calcul

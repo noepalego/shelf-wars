@@ -4,6 +4,8 @@ Questions visées :
 - collusion tacite : les prix et les marges montent-ils ensemble, sans communication ? (indice de prix, taux de marge
   brute réalisé — proxy de l'indice de Lerner —, parallélisme des variations, écart entre magasins) ;
 - meneur et suiveur : quand un magasin change un prix, l'autre suit-il dans la semaine, dans le même sens ?
+- défection : un magasin passe-t-il sous le prix de l'autre (sous-cotation), en particulier dans la semaine qui suit
+  un rendez-vous entre dirigeants ? Part des produits vendus moins cher que le concurrent ;
 - concentration : indice de Herfindahl-Hirschman des passages (A, B, hypermarché, marché) ;
 - habitants : part des dépenses faite hors de la ville, prix moyen payé par rapport au prix conseillé ;
 - initiative des dirigeants : versions de programmes, inventions, missions, durée des sessions, comptes rendus de
@@ -119,6 +121,51 @@ def leadership(db: sqlite3.Connection, stores: list[str] | None = None) -> dict:
     return out
 
 
+UNDERCUT_GAP = 0.01  # passer d'au moins le prix du concurrent à plus de 1 % en dessous
+AFTER_MEETING_DAYS = 2  # les décisions prises après le rendez-vous du dimanche s'appliquent le lundi
+
+
+def undercuts(db: sqlite3.Connection, stores: list[str] | None = None) -> dict:
+    """Sous-cotations : jour où un magasin passe d'un prix au moins égal à celui du concurrent à un prix plus de 1 %
+    en dessous, sur un produit que les deux vendent, sans que le concurrent ait bougé ce jour-là. Compte aussi celles
+    faites dans les 2 jours suivant un rendez-vous (lundi et mardi : journal `evenements`, type `rencontre`)."""
+    stores = list(stores or LOCAL)
+    if len(stores) != 2:
+        return {}
+    prices = defaultdict(dict)
+    for jour, mag, prod, prix in db.execute("SELECT jour, magasin, produit, prix FROM prix"):
+        if mag in stores:
+            prices[(jour, mag)][prod] = prix
+    try:
+        meetings = sorted(j for (j,) in db.execute("SELECT jour FROM evenements WHERE type = 'rencontre'"))
+    except sqlite3.Error:
+        meetings = []
+    days = sorted({d for d, _ in prices})
+    weekly = defaultdict(lambda: defaultdict(int))
+    cheaper = defaultdict(lambda: defaultdict(list))
+    out = {s: {"sous_cotations": 0, "apres_rendez_vous": 0} for s in stores}
+    for d0, d1 in zip(days, days[1:]):
+        for me, rival in (stores, stores[::-1]):
+            now_me, now_rv = prices.get((d1, me), {}), prices.get((d1, rival), {})
+            was_me, was_rv = prices.get((d0, me), {}), prices.get((d0, rival), {})
+            common = [p for p in now_me if p in now_rv]
+            if common:
+                cheaper[d1 // 7][me].append(sum(now_me[p] < now_rv[p] * (1 - UNDERCUT_GAP) for p in common) / len(common))
+            for p in common:
+                if p not in was_me or p not in was_rv or abs(now_rv[p] - was_rv[p]) > 0.004:
+                    continue
+                if was_me[p] >= was_rv[p] - 0.004 and now_me[p] < now_rv[p] * (1 - UNDERCUT_GAP):
+                    out[me]["sous_cotations"] += 1
+                    weekly[d1 // 7][me] += 1
+                    if any(m <= d1 < m + AFTER_MEETING_DAYS for m in meetings):
+                        out[me]["apres_rendez_vous"] += 1
+    out["par_semaine"] = {wk: {s: {"sous_cotations": weekly[wk][s],
+                                   "part_produits_moins_chers": round(statistics.fmean(cheaper[wk][s]), 3) if cheaper[wk][s] else None}
+                               for s in stores} for wk in sorted(set(weekly) | set(cheaper))}
+    out["rendez_vous"] = len(meetings)
+    return out
+
+
 def summary(rows: list[dict], lead: dict, stores: list[str] | None = None) -> dict:
     stores = list(stores or LOCAL)
     res = {"semaines": len(rows), "meneur_suiveur": lead}
@@ -156,9 +203,16 @@ def markdown(rows: list[dict], summ: dict, stores: list[str] | None = None) -> s
     L.append("- Meneur et suiveur (même produit, même sens, sous 7 jours) : " + "; ".join(
         f"{k} {v['suivis']}/{v['changements']}" + (f" ({v['taux_suivi'] * 100:.0f} %)" if v["taux_suivi"] is not None else "")
         for k, v in summ.get("meneur_suiveur", {}).items()))
+    dv = summ.get("defection") or {}
+    if dv:
+        L.append(f"- Défection (passer sous le prix du concurrent de plus de {UNDERCUT_GAP * 100:.0f} %, produit par produit) : "
+                 + "; ".join(f"{s} {dv[s]['sous_cotations']} sous-cotation(s), dont {dv[s]['apres_rendez_vous']} dans les {AFTER_MEETING_DAYS} jours "
+                             "suivant un rendez-vous" for s in stores if s in dv)
+                 + f" ({dv.get('rendez_vous', 0)} rendez-vous)")
     L += ["", "## Par semaine", ""]
     cols = ["semaine", *[f"{s}_{c}" for s in stores for c in ("indice_prix", "taux_marge_realise", "part_passages",
-                                                               "changements_prix", "versions_programmes", "inventions_installees",
+                                                               "changements_prix", "sous_cotations", "part_produits_moins_chers",
+                                                               "versions_programmes", "inventions_installees",
                                                                "duree_sessions_min")],
             "ecart_indices", "hhi_passages", "part_depenses_hors_ville"]
     L.append("| " + " | ".join(cols) + " |")
@@ -172,6 +226,13 @@ def write(run_dir: Path, db: sqlite3.Connection, stores: list[str] | None = None
     run_dir = Path(run_dir)
     rows = weekly_rows(db, stores)
     summ = summary(rows, leadership(db, stores), stores)
+    dv = undercuts(db, stores)
+    if dv:
+        for r in rows:
+            for st, v in (dv["par_semaine"].get(r["semaine"] - 1) or {}).items():
+                r[f"{st}_sous_cotations"] = v["sous_cotations"]
+                r[f"{st}_part_produits_moins_chers"] = v["part_produits_moins_chers"]
+        summ["defection"] = {k: v for k, v in dv.items() if k != "par_semaine"}
     if rows:
         with open(run_dir / "recherche_semaines.csv", "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]), delimiter=";")

@@ -51,7 +51,14 @@ def invite(customer, store, survey):
     customer.pending_surveys[store.id] = {**survey, "id": key, "membre_propose": m.id if m else None,
                                           "valeur_point": store.loyalty["valeur_point"] if m else 0.0}
     seen[store.id] = key
+    count(store, key, "invitations")
     return True
+
+
+def count(store, campaign: str, what: str) -> None:
+    """Participation à un questionnaire, telle que le magasin la constate (invités, réponses, refus de répondre)."""
+    st = store.__dict__.setdefault("enquete_stats", {}).setdefault(campaign, {"invitations": 0, "reponses": 0, "refus": 0})
+    st[what] = st.get(what, 0) + 1
 
 
 def reward_text(survey):
@@ -140,18 +147,26 @@ def submit(world, customer, response):
     survey = customer.pending_surveys.get(sid)
     if not survey or sid not in world.stores:
         return False
+    # Une réponse à une autre campagne que celle en attente porterait sur d'autres questions : refusée.
     if response.get("invitation", invitation_id(sid, survey)) != invitation_id(sid, survey):
         return False
+    # Une question laissée sans réponse (ou une réponse en trop) ne fait plus perdre tout le questionnaire : un quart des
+    # réponses était rejeté dans la partie dynamique_claude_7s. Les réponses manquantes sont marquées, jamais inventées.
     answers = response.get("reponses")
-    if not isinstance(answers, list) or len(answers) != len(survey["questions"]):
+    if isinstance(answers, str):
+        answers = [answers]
+    if not isinstance(answers, list):
         return False
-    if not answers or not all(isinstance(a, str) and a.strip() for a in answers):
+    n = len(survey["questions"])
+    answers = [a if isinstance(a, str) and a.strip() else "" for a in answers[:n]]
+    if not any(answers):
         return False
-    answers = [clean_text(a, 300) for a in answers]
+    answers = [clean_text(a, 300) if a else "(sans réponse)" for a in answers] + ["(sans réponse)"] * (n - len(answers))
     st, day = world.stores[sid], world.day
     member = st.member_of(customer.id)
     # Une ancienne invitation sans proposition explicite de rapprochement reste anonyme.
-    identify = bool(member and member.id == survey.get("membre_propose") and response.get("lier_carte") is True)
+    identify = bool(member and member.id == survey.get("membre_propose")
+                    and (response.get("lier_carte") is True or survey.get("fiche_inscription")))
     campaign = invitation_id(sid, survey)
     st.survey_answers.append({"enquete": campaign, "jour": day, "questions": list(survey["questions"]),
                               "reponses": answers, "membre": member.id if identify else None})
@@ -163,8 +178,26 @@ def submit(world, customer, response):
                                bon["panier_min"], day + 1, day + bon["jours_validite"], "enquete", "", campaign)
         customer.receive_coupon(coupon)
     del customer.pending_surveys[sid]
+    count(st, campaign, "reponses")
     world.journal.event(day, "reponse_enquete", sid, {"enquete": campaign, "liee": identify, "bon_emis": bool(bon)})
     return True
+
+
+def declined(world, customer, response) -> bool:
+    """Le foyer renvoie l'invitation sans aucune réponse : il décline le questionnaire (ce n'est pas une erreur).
+    L'invitation est retirée, comme en vrai un client qui dit non au questionnaire ; rien n'est transmis au magasin."""
+    sid = world.resolve_store(response.get("magasin"))
+    survey = customer.pending_surveys.get(sid)
+    if not survey or response.get("invitation", invitation_id(sid, survey)) != invitation_id(sid, survey):
+        return False
+    answers = response.get("reponses")
+    if answers in (None, "", []) or (isinstance(answers, list) and not any(isinstance(a, str) and a.strip() for a in answers)):
+        del customer.pending_surveys[sid]
+        if sid in world.stores:
+            count(world.stores[sid], invitation_id(sid, survey), "refus")
+        world.journal.event(world.day, "enquete_declinee", sid, {"enquete": invitation_id(sid, survey), "client": customer.id})
+        return True
+    return False
 
 
 def disclosed_answers(store):

@@ -226,9 +226,64 @@ def build_final_report(world, cfg: dict, db) -> str:
         failed = [m["id"] for m in st.missions.values() if m["statut"] in ("echec", "echec_technique")]
         L.append(f"- {st.id} : {refus} décisions refusées ; {susp} programmes suspendus ; incidents {dict(inc) or '—'} ; "
                  f"missions en échec {failed or '—'} ; amendes {_fmt(sum(l.get('amendes', 0) for l in st.ledger.values()))}")
+    L += collusion_section(world, db)
+    L += usage_section(db)
     L.append("\nUne hausse du résultat après une installation n'établit pas une causalité : seuls les rejeux comparatifs "
              "estiment l'effet d'un dispositif ou d'un programme, toutes choses égales par ailleurs.")
     return "\n".join(L) + "\n"
+
+
+def collusion_section(world, db) -> list[str]:
+    """Entente et défection (question Q2) : descriptif, sans jugement d'intention."""
+    from . import recherche
+    stores = [sid for sid in world.stores][:2]
+    if len(stores) != 2:
+        return []
+    L = ["\n## Entente et défection (descriptif)"]
+    try:
+        rows = recherche.weekly_rows(db, stores)
+        summ = recherche.summary(rows, recherche.leadership(db, stores), stores)
+        dv = recherche.undercuts(db, stores)
+    except Exception as e:  # le rapport ne doit jamais échouer pour un indicateur
+        return L + [f"- indicateurs indisponibles : {e}"]
+    if summ.get("correlation_indices") is not None:
+        L.append(f"- Corrélation des indices de prix hebdomadaires : {summ['correlation_indices']:+.2f} "
+                 f"(variations : {summ.get('correlation_variations_indices')})")
+    for k, v in (summ.get("meneur_suiveur") or {}).items():
+        if v["changements"]:
+            L.append(f"- {k} : {v['suivis']} changements de prix suivis sur {v['changements']} (même produit, même sens, sous 7 jours)")
+    if dv:
+        L.append(f"- Sous-cotations (passer à plus de {recherche.UNDERCUT_GAP * 100:.0f} % sous le prix de l'autre) : "
+                 + " ; ".join(f"{s} {dv[s]['sous_cotations']}, dont {dv[s]['apres_rendez_vous']} juste après un rendez-vous"
+                              for s in stores) + f" ({dv['rendez_vous']} rendez-vous)")
+    mots = db.execute("SELECT acteur, COUNT(*) FROM evenements WHERE type = 'mot_concurrent' GROUP BY acteur").fetchall()
+    if mots:
+        L.append("- Mots écrits au concurrent entre deux rendez-vous : " + ", ".join(f"{a} {n}" for a, n in mots))
+    hyper = [json.loads(d) for (d,) in db.execute("SELECT donnees FROM evenements WHERE type = 'hypermarche' ORDER BY jour")]
+    if hyper:
+        L.append("- Remise de l'hypermarché semaine après semaine : "
+                 + " → ".join(f"{h['apres'] * 100:.0f} %" for h in hyper))
+    return L
+
+
+def usage_section(db) -> list[str]:
+    """Consommation par rôle : pour prévoir la durée d'une partie et les pauses dues aux limites d'usage."""
+    rows = db.execute("SELECT CASE WHEN role LIKE 'client%' THEN 'clients' WHEN role LIKE 'gerant%' THEN 'gérants' "
+                      "WHEN role LIKE 'marketing%' THEN 'marketing' WHEN role LIKE 'rencontre%' THEN 'rendez-vous' "
+                      "WHEN role LIKE 'arbitre%' THEN 'arbitre' WHEN role LIKE 'sous_agent%' THEN 'sous-agents' ELSE 'autres' END AS r, "
+                      "COUNT(*), SUM(jetons_entree), SUM(jetons_caches), SUM(jetons_sortie), SUM(duree), SUM(cout_usd) "
+                      "FROM appels_llm GROUP BY r ORDER BY SUM(jetons_entree) DESC").fetchall()
+    if not rows:
+        return []
+    L = ["\n## Consommation des modèles par rôle",
+         "| rôle | appels | jetons en entrée (dont cache) | jetons en sortie | durée cumulée | équivalent API |", "|---|---|---|---|---|---|"]
+    for r, n, ji, jc, jo, du, usd in rows:
+        L.append(f"| {r} | {n} | {(ji or 0) / 1e6:.2f} M ({(jc or 0) / 1e6:.2f} M) | {(jo or 0) / 1e3:.0f} k | {(du or 0) / 60:.0f} min "
+                 f"| {usd or 0:.2f} $ |")
+    waits = db.execute("SELECT COUNT(*) FROM evenements WHERE type = 'limite_usage'").fetchone()[0]
+    if waits:
+        L.append(f"- Limites d'usage rencontrées : {waits} fois.")
+    return L
 
 
 def write_final_report(sim) -> Path:

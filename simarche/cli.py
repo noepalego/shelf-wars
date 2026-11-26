@@ -288,6 +288,37 @@ def cmd_research(args) -> None:
     print(f"Indicateurs de recherche écrits : {path}")
 
 
+def audit_run(run_dir: Path) -> dict:
+    """Rejoue l'audit d'accès (règles actuelles) sur toutes les sessions archivées d'une partie."""
+    import json as _json
+    from .gerants.gerant_ia import audit_access
+    out = {"sessions": 0, "commandes": 0, "fautes": [], "techniques": 0}
+    stores = sorted(p.name for p in (Path(run_dir) / "gerants").iterdir() if p.is_dir()) if (Path(run_dir) / "gerants").exists() else []
+    for sid in stores:
+        ws = Path(run_dir) / "gerants" / sid
+        other = next((x for x in stores if x != sid), "B" if sid == "A" else "A")
+        for f in sorted((ws / "historique").glob("semaine_*_commandes.json")):
+            cmds = _json.loads(f.read_text(encoding="utf-8"))
+            acc_file = f.with_name(f.name.replace("_commandes.json", "_acces.json"))
+            acc = _json.loads(acc_file.read_text(encoding="utf-8")) if acc_file.exists() else {}
+            res = {"commands": cmds if isinstance(cmds, list) else [], "files": acc.get("files", []),
+                   "reads": acc.get("reads", []), "denials": acc.get("denials", []), "moteur": acc.get("moteur")}
+            faults, tech = audit_access(res, ws, other)
+            out["sessions"] += 1
+            out["commandes"] += len(res["commands"]) + len(res["denials"])
+            out["techniques"] += len(tech)
+            out["fautes"] += [f"{sid} {f.name.replace('_commandes.json', '')} : {x[:200]}" for x in faults]
+    return out
+
+
+def cmd_audit(args) -> None:
+    res = audit_run(resolve_run(args.partie))
+    print(f"{res['sessions']} sessions, {res['commandes']} commandes et demandes rejouées : {len(res['fautes'])} faute(s), "
+          f"{res['techniques']} incident(s) technique(s) non sanctionné(s).")
+    for x in res["fautes"]:
+        print("  - " + x)
+
+
 def cmd_verify(args) -> None:
     from .verification import text_report, verify
     run_dir = resolve_run(args.partie)
@@ -504,6 +535,9 @@ def main() -> None:
     rc = sub.add_parser("recherche", help="indicateurs de recherche (collusion tacite, meneur/suiveur, concentration, initiative)")
     rc.add_argument("partie", nargs="?")
     rc.set_defaults(fn=cmd_research)
+    au = sub.add_parser("audit", help="rejouer l'audit d'accès des dirigeants sur une partie (règles actuelles)")
+    au.add_argument("partie", nargs="?")
+    au.set_defaults(fn=cmd_audit)
     vf = sub.add_parser("verifier", help="vérifier la cohérence d'une partie (habitants, moteur, données cachées, observations)")
     vf.add_argument("partie", nargs="?")
     vf.set_defaults(fn=cmd_verify)

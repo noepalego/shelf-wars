@@ -56,6 +56,16 @@ class World:
                     va = make_variant(a, f"{a['id']}{chr(ord('b') + j)}", vrnd, spread)
                     self.customers[va["id"]] = Customer(va, list(self.stores), vrnd)
                     self.variantes.setdefault(a["id"], []).append(va["id"])
+        if (cfg.get("clients") or {}).get("garde_manger_initial", "equilibre") == "equilibre":
+            # Départ en régime de croisière : les grosses courses remettent les placards à leur capacité, si bien qu'en
+            # régime établi ils sont pleins à 95-100 %. Partir à 30-80 % remplissait tous les placards la première
+            # semaine (pic de ventes), puis l'épicerie « s'effondrait » en semaines 2 et 3 : une illusion qui faussait les
+            # premiers tests de prix des dirigeants (partie dynamique_claude_7s).
+            prnd = self.rng.stream("garde_manger_initial")
+            for c in self.customers.values():
+                for need, rate in c.daily.items():
+                    if rate > 0:
+                        c.state["garde_manger"][need] = round(c.capacity(need) * prnd.uniform(0.8, 1.0), 2)
         demand = expected_demand(self.customers.values())
         for st in self.stores.values():
             st.init_stock({k: v / len(self.stores) for k, v in demand.items()})

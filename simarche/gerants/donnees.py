@@ -1,6 +1,7 @@
 """Données remises au code d'un gérant : uniquement ce que son magasin observe, plus les informations publiques.
 
-Jamais d'identifiant de client sans carte, jamais d'attribut caché, jamais de donnée du concurrent hors public.
+Jamais d'identifiant interne de client, jamais d'attribut caché, jamais de donnée du concurrent hors public. Un ticket sans
+carte de fidélité porte seulement ce que lit un terminal de paiement : espèces, ou les 4 derniers chiffres d'une carte.
 """
 from __future__ import annotations
 
@@ -13,6 +14,10 @@ from . import projets
 LEDGER_KEYS = ("ventes", "cout_des_ventes", "demarque", "demarque_inconnue", "charges_fixes", "salaires",
                "caisses_supplementaires", "recrutement", "indemnites", "marketing", "veille", "etiquettes", "systemes",
                "investissements", "investissement_etiquettes", "acquisitions_immobilisees", "amortissements", "horaires_etendus", "sous_agents", "remises_coupons", "remises_points", "amendes", "reamenagement", "referencement")
+
+
+HISTORY_DAYS = 91   # ventes et comptes du jour remis aux programmes (13 semaines ; 28 jours avant)
+TICKET_DAYS = 42    # tickets détaillés remis aux programmes (6 semaines ; 14 jours avant)
 
 
 def _expiry_days(store, pid: str, day: int):
@@ -46,6 +51,7 @@ def products(world, store) -> list[dict]:
 
 def ticket_view(t: dict) -> dict:
     return {"ticket": t["id"], "jour": t["jour"], "creneau": t["creneau"], "membre": t["membre"], "total": t["total"],
+            "paiement": t.get("paiement", ""), "carte_bancaire": t.get("carte_bancaire", ""),
             "sous_total": t["sous_total"], "remise_coupons": t["remise_coupons"], "remise_points": t["remise_points"],
             "coupons": list(t["coupons"]),
             "articles": [{"produit": l["produit"], "quantite": l["quantite"], "prix_unitaire": l["prix_unitaire"],
@@ -56,7 +62,8 @@ def member_view(m) -> dict:
     return {"membre": m.id, "inscrit_jour": m.jour_inscription, "donnees": dict(m.donnees),
             "joignable_email": bool(m.consent_email and not m.desabonne_email),
             "joignable_sms": bool(m.consent_sms and not m.desabonne_sms), "points": round(m.points), "visites": m.visites,
-            "total_depense": round(m.total_depense, 2), "derniere_visite": m.derniere_visite, "tags": list(m.tags), "notes": m.notes}
+            "total_depense": round(m.total_depense, 2), "derniere_visite": m.derniere_visite, "tags": list(m.tags), "notes": m.notes,
+            "passages": [{"jour": d, "creneau": c, "montant": x} for d, c, x in m.__dict__.get("historique", [])]}
 
 
 def instruments_view(store) -> dict:
@@ -80,10 +87,10 @@ def snapshot(world, store, light: bool = False) -> dict:
         return base
     by_member = {m.client: m.id for m in store.members.values()}
     ventes = [{"jour": d, "produit": pid, "quantite": v[0], "ca": round(v[1], 2), "cout": round(v[2], 2)}
-              for d in range(max(0, day - 28), day) for pid, v in store.sales.get(d, {}).items()]
-    tickets = [ticket_view(t) for t in store.tickets if t["jour"] >= day - 14]
+              for d in range(max(0, day - HISTORY_DAYS), day) for pid, v in store.sales.get(d, {}).items()]
+    tickets = [ticket_view(t) for t in store.tickets if t["jour"] >= day - TICKET_DAYS]
     compta = []
-    for d in range(max(0, day - 28), day):
+    for d in range(max(0, day - HISTORY_DAYS), day):
         led = store.ledger.get(d, {})
         wl = store.work_log.get(d, {})
         compta.append({"jour": d, **{k: round(led.get(k, 0.0), 2) for k in LEDGER_KEYS},

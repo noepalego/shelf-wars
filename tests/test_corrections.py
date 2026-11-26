@@ -103,8 +103,14 @@ def test_rendez_vous_personne_ne_clot_seul(tmp_path, monkeypatch):
         assert "aucun droit de la concurrence" in system and "ni conseillé ni déconseillé" in system
         rules = rules_text(w, w.stores["A"], None, 1, "gerant", ["gerant", "marketing"])
         assert "aucun droit de la concurrence" in rules
-        _, ko = asyncio.run(apply_decisions(w, w.stores["A"], {"message_concurrent": "Bonjour"}))
-        assert any("rendez-vous du dimanche soir" in x for x in ko)
+        ok, ko = asyncio.run(apply_decisions(w, w.stores["A"], {"message_concurrent": "Bonjour"}))
+        # Un mot écrit pendant la semaine n'est plus refusé : il est remis au début du rendez-vous suivant.
+        assert any("prochain rendez-vous" in x for x in ok) and not any("non transmis" in x for x in ko)
+        assert "Bonjour" in rencontre.brief(w, w.stores["B"], "gerant")
+        asyncio.run(rencontre.meet(sim))
+        last = rencontre.history(w)[-1]
+        assert last["courrier"][0]["texte"] == "Bonjour" and "Bonjour" in rencontre.transcript(w, last)
+        assert not w.__dict__.get("courrier_rencontre")
     finally:
         sim.close()
         temps.MASQUER_SEMAINES = False

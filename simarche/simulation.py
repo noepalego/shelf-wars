@@ -18,13 +18,13 @@ from .cerveaux import projected_basket, IABrain, FormulaBrain, MixedBrain, SyncF
 from .clients import PLACES_EXT
 from .communication import post_review, recent_reviews
 from .config import load_config, save_config, uses_ia
-from .enquetes import invite, submit
+from .enquetes import declined, invite, submit
 from .evenements import economic_events, life_events
 from .geometrie import visitor_path
 from .gerants import actionnaire, projets, rencontre, sous_agents
 from .gerants.guichet import Guichet
 from .gerants.auteur import AuteurManager
-from .gerants.automatisations import AutomationRunner
+from .gerants.automatisations import MAX_ACTIONS, AutomationRunner
 from .gerants.decisions import apply_decisions, apply_price, empty_decisions, merge_partials, run_price_surveys, sanitize_partial, store_keys
 from .gerants.donnees import member_view, snapshot
 from .gerants.gerant_ia import IAManager, TeamManager
@@ -409,8 +409,12 @@ class Simulation:
         elif av.get("publier"):
             self.journal.event(day, "retour_client_rejete", c.id, {"canal": "avis", "motif": "avis vide ou magasin non visité"})
         for rep in r.get("reponses_enquete", []) or []:
+            if not isinstance(rep, dict):
+                continue
             if submit(w, c, rep):
                 w.stores[w.resolve_store(rep["magasin"])].evenements_internes.append({"jour": day, "type": "reponse_enquete"})
+            elif declined(w, c, rep):
+                continue
             else:
                 self.journal.event(day, "retour_client_rejete", c.id, {"canal": "enquete", "motif": "invitation ou réponses invalides"})
 
@@ -653,7 +657,9 @@ class Simulation:
         day = self.world.day
         m = st.member_of(c.id)
         L = st.loyalty
-        labels = {"age": "âge", "quartier": "quartier", "foyer": "composition du foyer", "email": "e-mail", "telephone": "téléphone"}
+        labels = {"age": "âge", "quartier": "quartier", "foyer": "composition du foyer", "email": "e-mail", "telephone": "téléphone",
+                  "profession": "profession", "revenus": "tranche de revenus", "vehicule": "voiture", "animaux": "animaux",
+                  "regime": "régime alimentaire", "connu_par": "comment il a connu le magasin"}
         offers = c.valid_coupons(st, day)
         return {"client": c, "lieu": st.id, "creneau": ctx["creneau"], "trajet": ctx["trajet"], "mode": ctx.get("mode_choisi", ""),
                 "articles": perceived["articles"],
@@ -686,6 +692,21 @@ class Simulation:
             item["cherche"] = seen[item["produit"]].get("cherche", False)
         return items
 
+    def enroll(self, st, c, day: int, bres: dict):
+        """Inscription à la carte en caisse : fiche remplie (cases éventuellement laissées vides), questions libres de la
+        fiche remises au nouveau membre, qui y répond (ou non) chez lui ; ses réponses vont dans sa fiche."""
+        c.state["_consent_email"] = bool(bres.get("accepte_emails"))
+        c.state["_consent_sms"] = bool(bres.get("accepte_sms"))
+        m = st.join(c, day)
+        qs = st.loyalty.get("questions_inscription") or []
+        if qs:
+            invite(c, st, {"id": f"{st.id}-INS-{m.id}", "questions": list(qs), "cible": "inscription",
+                           "recompense_points": 0, "bon": None, "jour": day, "fiche_inscription": True})
+        st.evenements_internes.append({"jour": day, "type": "nouveau_membre", "membre": m.id, "donnees": dict(m.donnees)})
+        c.remember(day, f"Inscrit(e) à la carte de fidélité de {st.nom}.", 3, st.id, ("fidelite",))
+        self.journal.event(day, "adhesion", st.id, {"client": c.id, "membre": m.id, "email": m.consent_email, "sms": m.consent_sms})
+        return m
+
     def checkout(self, bctx: dict, bres: dict, rnd) -> dict:
         w = self.world
         day = w.day
@@ -695,12 +716,7 @@ class Simulation:
         raw = self.chosen_items(bctx, bres)
         items = self.validate_basket(bctx, bres)
         if bres.get("carte_fidelite") == "oui" and st.loyalty["actif"] and st.member_of(c.id) is None:
-            c.state["_consent_email"] = bool(bres.get("accepte_emails"))
-            c.state["_consent_sms"] = bool(bres.get("accepte_sms"))
-            m = st.join(c, day)
-            st.evenements_internes.append({"jour": day, "type": "nouveau_membre", "membre": m.id, "donnees": dict(m.donnees)})
-            c.remember(day, f"Inscrit(e) à la carte de fidélité de {st.nom}.", 3, st.id, ("fidelite",))
-            self.journal.event(day, "adhesion", st.id, {"client": c.id, "membre": m.id, "email": m.consent_email, "sms": m.consent_sms})
+            self.enroll(st, c, day, bres)
         wait = st.wait_time(day, slot, rnd)
         travel_cost = bctx.get("cout_trajet", 0.0)
         budget = max(0.0, min(bctx["budget"], c.state["budget_restant"]) - travel_cost)
@@ -738,6 +754,7 @@ class Simulation:
             t = {"ticket": ticket["id"], "membre": m.id if m else None, "fiche_membre": member_view(m) if m else None,
                  "total": ticket["total"], "sous_total": ticket["sous_total"], "remise_coupons": ticket["remise_coupons"],
                  "coupons": list(ticket["coupons"]), "jour": day, "creneau": slot,
+                 "paiement": ticket.get("paiement", ""), "carte_bancaire": ticket.get("carte_bancaire", ""),
                  "articles": [{"produit": l["produit"], "quantite": l["quantite"], "prix_unitaire": l["prix_unitaire"],
                                "total": l["total"], "promo": l["promo"]} for l in ticket["lignes"]]}
             self.run_hook(st, "a_chaque_ticket", t, slot)
@@ -955,15 +972,28 @@ class Simulation:
                     st.automations[name]["actif"] = False
                     st.report_notes.append(f"programme {name} suspendu après 3 erreurs")
                     self.journal.event(self.world.day, "programme_suspendu", st.id, {"fichier": name, "erreur": err[:300]})
-        for line in res.get("logs", [])[:20]:
+        logs = res.get("logs", [])
+        for line in logs[:40]:
             st.report_notes.append(line)
-        st.report_notes = st.report_notes[-120:]
+        if len(logs) > 40:
+            st.report_notes.append(f"… {len(logs) - 40} autres notes de programmes ({label}) non reprises dans le rapport")
+        for name, n in (res.get("ignorees") or {}).items():
+            st.report_notes.append(f"[{name}] {n} actions au-delà de la limite technique ({MAX_ACTIONS} par exécution) : "
+                                   "ignorées")
+        st.report_notes = st.report_notes[-NOTES_KEPT:]
         self.apply_automation_actions(st, res.get("actions", []))
 
     def apply_automation_actions(self, st, actions: list[dict]) -> None:
+        """Actions des programmes. Les décisions partielles et les coupons individuels sont regroupés (un coupon aux
+        mêmes conditions pour plusieurs membres = une seule campagne) puis appliqués par `flush_code_decisions`.
+        Rien n'est écarté en silence : toute action au-delà des limites techniques est signalée dans le rapport."""
         w = self.world
         day = w.day
-        for a in actions[:500]:
+        dropped: dict = defaultdict(int)
+        coupon_groups: dict = {}
+        if len(actions) > MAX_ACTIONS:
+            dropped["(toutes sources)"] += len(actions) - MAX_ACTIONS
+        for a in actions[:MAX_ACTIONS]:
             kind = a.get("type")
             author = st.automations.get(a.get("source", ""), {}).get("auteur")
             keys = store_keys(st, author)
@@ -981,8 +1011,11 @@ class Simulation:
                 st.report_notes.append(f"[{a.get('source', '')}] refusé : « {need} » ne relève pas du rôle qui a activé ce programme")
                 continue
             if kind == "decider":
-                if isinstance(a.get("decision"), dict) and len(self.pending[st.id]) < 50:
-                    self.pending[st.id].append((str(a.get("source", "")), a["decision"]))
+                if isinstance(a.get("decision"), dict):
+                    if len(self.pending[st.id]) < MAX_PENDING:
+                        self.pending[st.id].append((str(a.get("source", "")), a["decision"]))
+                    else:
+                        dropped[str(a.get("source", ""))] += 1
             elif kind == "publier":
                 nom = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in str(a.get("nom", "")))[:60] or "table"
                 rows = [r for r in (a.get("lignes") or []) if isinstance(r, dict)][:5000]
@@ -998,11 +1031,27 @@ class Simulation:
             elif kind == "fixer_prix":
                 _, notes = apply_price(w, st, a.get("produit"), a.get("prix"), a.get("creneau"))
                 st.report_notes.extend(notes)
-            elif kind == "emettre_coupon" and len(self.pending[st.id]) < 50:
+            elif kind == "emettre_coupon":
                 fields = ("offre", "valeur", "produit", "panier_min", "jours_validite", "texte")
                 coupon = {key: value for key in fields if (value := a.get(key)) is not None}
-                coupon["membres"] = [a.get("membre", "")]
-                self.pending[st.id].append((str(a.get("source", "")), {"coupons": [coupon]}))
+                src = str(a.get("source", ""))
+                key = (src, json.dumps(coupon, sort_keys=True, default=str))
+                if key not in coupon_groups:
+                    if len(self.pending[st.id]) >= MAX_PENDING:
+                        dropped[src] += 1
+                        continue
+                    coupon_groups[key] = {**coupon, "distribution": "membres_liste", "canal": "carte", "membres": []}
+                    self.pending[st.id].append((src, {"coupons": [coupon_groups[key]]}))
+                member = str(a.get("membre", ""))
+                if member not in coupon_groups[key]["membres"]:
+                    coupon_groups[key]["membres"].append(member)
+        for src, n in dropped.items():
+            if src in st.automations:
+                st.__dict__.setdefault("prog_stats", {}).setdefault(
+                    src, {"executions": 0, "actions": 0, "types": {}, "erreurs": 0})["ignorees"] = (
+                    st.prog_stats[src].get("ignorees", 0) + n)
+            st.report_notes.append(f"[{src}] {n} actions ignorées : plus de {MAX_PENDING} décisions proposées par les "
+                                   "programmes aujourd'hui (limite technique)")
 
     async def flush_code_decisions(self) -> None:
         """Applique les décisions proposées par le code des gérants (mêmes règles que leurs sessions)."""
@@ -1012,14 +1061,16 @@ class Simulation:
             st = w.stores[sid]
             if not items or st.bankrupt:
                 continue
-            groups: dict = defaultdict(list)  # par auteur : chacun agit avec ses propres leviers
+            # Par programme (et donc par auteur, chacun avec ses propres leviers) : chaque note du rapport et chaque refus
+            # sont attribués au programme qui les a causés (avant, tous les programmes d'un auteur partageaient la même
+            # étiquette « [a.py, b.py, c.py] », illisible).
+            groups: dict = {}
             for src, d in items:
-                groups[st.automations.get(src, {}).get("auteur")].append((src, d))
-            for author, group in groups.items():
-                sources = sorted({s for s, _ in group if s}) or ["programme"]
-                tag = "[" + ", ".join(sources) + "]"
+                groups.setdefault((st.automations.get(src, {}).get("auteur"), src or "programme"), []).append(d)
+            for (author, src), group in groups.items():
+                tag = f"[{src}]"
                 cleaned, problems = [], []
-                for _, d in group:
+                for d in group:
                     c, p = sanitize_partial(d, temps.slots(self.cfg))
                     cleaned.append(c)
                     problems += p
@@ -1027,12 +1078,18 @@ class Simulation:
                 accepted, refused = (await apply_decisions(w, st, merged, None, role=author,
                                                            allowed=store_keys(st, author))) if merged else ([], [])
                 refused = problems + refused
+                rec = st.__dict__.setdefault("prog_stats", {}).get(src)
+                if rec is not None:  # tableau de bord « Tes outils »
+                    rec["refus"] = rec.get("refus", 0) + len(refused)
                 for line in accepted[:10]:
                     st.report_notes.append(f"{tag} {line}")
                 for line in refused[:10]:
                     st.report_notes.append(f"{tag} refusé : {line}")
-                st.report_notes = st.report_notes[-120:]
-                self.journal.event(w.day, "decision_code", sid, {"sources": sources, "decision": merged, "auteur": author,
+                if len(accepted) > 10 or len(refused) > 10:
+                    st.report_notes.append(f"{tag} … et {max(0, len(accepted) - 10)} autre(s) ligne(s) appliquée(s), "
+                                           f"{max(0, len(refused) - 10)} autre(s) refusée(s) (détail : journal de la partie)")
+                st.report_notes = st.report_notes[-NOTES_KEPT:]
+                self.journal.event(w.day, "decision_code", sid, {"sources": [src], "decision": merged, "auteur": author,
                                                                   "acceptees": accepted, "refusees": refused})
 
     # ------------------------------------------------------------------ indicateurs
@@ -1060,6 +1117,10 @@ class Simulation:
         for place in PLACES_EXT:
             rec = w.outside.get(day, {}).get(place, [0, 0.0])
             self.journal.metrics(day, place, {"ca": round(rec[1], 2), "visites": rec[0], "clients": rec[0]})
+
+
+NOTES_KEPT = 300  # notes de programmes gardées pour le rapport (affichées dédoublonnées)
+MAX_PENDING = 5000  # décisions partielles des programmes par jour (protection technique)
 
 
 def new_run_dir(base: Path, name: str) -> Path:

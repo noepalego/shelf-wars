@@ -1,6 +1,7 @@
 """Magasin : prix, stocks par lots, rayons, promotions, coupons, fidélité, caisse et comptabilité."""
 from __future__ import annotations
 
+import hashlib
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -122,6 +123,18 @@ class Coupon:
         if self.declencheur_produit:
             s += f" avec {self.quantite_min or 1} × {PRODUCTS[self.declencheur_produit].nom}"
         return s
+
+
+def payment_of(customer, cfg: dict) -> tuple[str, str]:
+    """Moyen de paiement d'un foyer, tel que la caisse le voit : « especes », ou « carte » avec les 4 derniers chiffres
+    de sa carte bancaire (toujours les mêmes pour ce foyer). C'est ce qu'un vrai commerçant lit sur son terminal : rien
+    sur la personne, mais de quoi reconnaître un même payeur d'un passage à l'autre, sans carte de fidélité."""
+    if not (cfg.get("donnees") or {}).get("moyen_paiement", True):
+        return "", ""
+    a = customer.attrs
+    h = hashlib.sha256(f"paiement|{customer.id}".encode()).hexdigest()
+    cash = int(h[:8], 16) / 16 ** 8 < 0.10 + 0.30 * (a.get("age", 40) >= 70) + 0.10 * (a.get("niveau_revenu", 0.5) < 0.25)
+    return ("especes", "") if cash else ("carte", f"•••• {int(h[8:16], 16) % 10000:04d}")
 
 
 @dataclass
@@ -521,6 +534,23 @@ class Store:
             self.pay(day, "agios", -self.cash * eco["taux_decouvert_jour"])
 
     # ------------------------------------------------------------------ fidélité
+    def _declares(self, customer, champ: str, gene: float) -> bool:
+        """Le foyer remplit-il ce champ de la fiche ? Plus il protège ses données et plus la question est indiscrète,
+        plus il laisse la case vide. Tirage stable (même foyer, même champ, même magasin)."""
+        u = int(hashlib.sha256(f"{self.id}|{customer.id}|{champ}".encode()).hexdigest()[:8], 16) / 16 ** 8
+        return u >= gene * customer.attrs.get("souci_vie_privee", 0.3)
+
+    def known_by(self, customer) -> str:
+        """Réponse du foyer à « comment nous avez-vous connus ? », d'après ce qu'il a réellement reçu ou entendu."""
+        seen = [m for m in getattr(customer, "inbox", []) if m.get("magasin") == self.id]
+        for canal, label in (("bouche_a_oreille", "par un proche"), ("prospectus", "par un prospectus"),
+                             ("publicité", "par une publicité"), ("email", "par un e-mail"), ("sms", "par un SMS")):
+            if any(str(m.get("canal", "")).startswith(canal) for m in seen):
+                return label
+        if any(self.id == m.get("magasin") and "bouche_a_oreille" in m.get("tags", []) for m in getattr(customer, "memory", [])):
+            return "par un proche"
+        return "proche de chez moi ou sur mon trajet"
+
     def join(self, customer, day: int) -> Member:
         self.member_seq += 1
         a = customer.attrs
@@ -537,6 +567,20 @@ class Store:
                 data["email"] = f"{a['prenom'].lower()}.{customer.id.lower()}@exemple.fr"
             elif k == "telephone":
                 data["telephone"] = "06 •• •• •• " + customer.id[-2:]
+            # Champs facultatifs : déclarés par le foyer, ou laissés vides (« non communiqué ») selon sa discrétion.
+            elif k == "profession":
+                data["profession"] = a.get("metier", "") if self._declares(customer, k, 0.5) else "non communiqué"
+            elif k == "revenus":
+                lo = int(a.get("revenu_mensuel", 0) // 500 * 500)
+                data["revenus_mensuels"] = (f"{lo}-{lo + 499} €" if self._declares(customer, k, 1.2) else "non communiqué")
+            elif k == "vehicule":
+                data["vehicule"] = ("oui" if a.get("voiture") else "non") if self._declares(customer, k, 0.3) else "non communiqué"
+            elif k == "animaux":
+                data["animaux"] = a.get("animal", "aucun") if self._declares(customer, k, 0.3) else "non communiqué"
+            elif k == "regime":
+                data["regime_alimentaire"] = a.get("regime", "") if self._declares(customer, k, 0.5) else "non communiqué"
+            elif k == "connu_par":
+                data["connu_par"] = self.known_by(customer)
         consent_email = "email" in self.loyalty["donnees_demandees"] and customer.state.get("_consent_email", False)
         consent_sms = "telephone" in self.loyalty["donnees_demandees"] and customer.state.get("_consent_sms", False)
         m = Member(id=f"{self.id}-{self.member_seq:04d}", client=customer.id, jour_inscription=day, donnees=data,
@@ -692,6 +736,9 @@ class Store:
             member.visites += 1
             member.total_depense += total
             member.derniere_visite = day
+            hist = member.__dict__.setdefault("historique", [])  # (jour, créneau, montant) : 120 derniers passages
+            hist.append((day, slot, round(total, 2)))
+            del hist[:-120]
         # Comptabilité
         if lines and member:
             for trial in getattr(self, "coupon_trials", {}).values():
@@ -716,7 +763,9 @@ class Store:
                 s[1] += l["total"] * ratio
                 s[2] += l["cout"]
         self.ticket_seq += 1
+        paiement, carte = payment_of(customer, self.cfg) if lines else ("", "")
         ticket = {"id": f"{self.id}-T{self.ticket_seq:06d}", "jour": day, "creneau": slot, "magasin": self.id,
+                  "paiement": paiement, "carte_bancaire": carte,
                   "client": customer.id, "membre": member.id if member else None, "lignes": lines,
                   "sous_total": subtotal, "remise_coupons": coupon_disc, "remise_points": round(points_disc, 2),
                   "total": total, "coupons": used, "points_gagnes": points_earned, "manquants": missing,
@@ -724,8 +773,8 @@ class Store:
         self.visits[day][slot] += 1
         self.visitors[day].add(customer.id)
         self.tickets.append(ticket)
-        if len(self.tickets) > 3000:
-            self.tickets = self.tickets[-2000:]
+        if len(self.tickets) > 9000:  # environ 6 semaines au moins pour une ville de 90 foyers
+            self.tickets = self.tickets[-7000:]
         # Coupons distribués en caisse (bounce-back)
         for bb in self.bounce_back:
             if bb["debut"] <= day <= bb["fin"] and lines:
